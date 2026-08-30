@@ -29,10 +29,10 @@ function App() {
 
   // ── Settlement lock check: runs once right after login, and again
   // whenever we return to Home (e.g. after a delivery bumps commission_owed) ──
-  async function checkSettlementLock(rider) {
+ async function checkSettlementLock(rider) {
     try {
-      const owed = await fetchCommissionOwed(rider.id);
-      if (shouldLockForSettlement(owed)) {
+      const { commissionOwed, lastSettledAt } = await fetchCommissionOwed(rider.id);
+      if (shouldLockForSettlement(commissionOwed, lastSettledAt)) {
         setIsLocked(true);
         setScreen('settleUp');
       }
