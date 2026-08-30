@@ -80,7 +80,7 @@ export function ActiveOrderScreen({ order: initialOrder, onDelivered, onBack }) 
     };
   }, []);
 
-  // ── Geocode vendor + customer addresses once, on mount ──
+  // ── Geocode vendor + customer addresses once, on mount (cached — see mapService.js) ──
   useEffect(() => {
     async function geocodeBoth() {
       try {
@@ -101,8 +101,21 @@ export function ActiveOrderScreen({ order: initialOrder, onDelivered, onBack }) 
   }, [order.vendors?.location, order.delivery_address]);
 
   // ── Track the rider's live GPS position ──
+  // Two-step approach: grab a fast, rough position immediately (network/cell
+  // based — usually returns in 1-2 seconds) so the route can start
+  // calculating right away, THEN switch to high-accuracy GPS tracking for
+  // the live blue dot and turn-by-turn precision. Without this, waiting on
+  // a cold high-accuracy GPS lock alone can take 30+ seconds on some phones,
+  // during which nothing on screen would move.
   useEffect(() => {
     if (!('geolocation' in navigator)) return;
+
+    navigator.geolocation.getCurrentPosition(
+      (pos) => setRiderPosition({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      () => {}, // silent — watchPosition below will surface a real error if location truly isn't available
+      { enableHighAccuracy: false, timeout: 8000, maximumAge: 60000 }
+    );
+
     const watchId = navigator.geolocation.watchPosition(
       (pos) => setRiderPosition({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
       () => setMapError('Location access is off — turn it on to see your live position and get directions.'),
@@ -111,7 +124,15 @@ export function ActiveOrderScreen({ order: initialOrder, onDelivered, onBack }) 
     return () => navigator.geolocation.clearWatch(watchId);
   }, []);
 
-  // ── Fetch/refresh the route whenever the target (vendor → then customer) or rider position changes meaningfully ──
+  // ── Fetch/refresh the route whenever the target changes, the order status
+  // changes, or the rider's position first becomes available. That last
+  // part is the key fix: previously this effect only depended on target and
+  // status, so if GPS hadn't resolved yet the moment the target was set, the
+  // route calculation would silently never fire again — "Calculating ETA"
+  // forever. Using Boolean(riderPosition) (not the raw coordinates) means
+  // this re-runs exactly once when a position first arrives, without
+  // re-firing on every subsequent GPS tick while walking/riding.
+  const hasPosition = Boolean(riderPosition);
   useEffect(() => {
     if (!riderPosition || !target) return;
 
@@ -134,7 +155,7 @@ export function ActiveOrderScreen({ order: initialOrder, onDelivered, onBack }) 
     fetchRoute();
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [target?.lat, target?.lng, order.status]);
+  }, [target?.lat, target?.lng, order.status, hasPosition]);
 
   // ── Update map markers, route line, and rider dot whenever data changes ──
   useEffect(() => {

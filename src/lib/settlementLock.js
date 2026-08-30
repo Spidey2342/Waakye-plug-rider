@@ -1,8 +1,18 @@
-// A rider gets locked once it's past this hour (24h format) AND they still
-// owe commission. Adjust to whenever your delivery day actually ends.
-const CUTOFF_HOUR = 12; // 8 PM
+const CUTOFF_HOUR = 12;
 
-export function shouldLockForSettlement(commissionOwed) {
+export function shouldLockForSettlement(commissionOwed, lastSettledAt) {
   if (!commissionOwed || commissionOwed <= 0) return false;
-  return new Date().getHours() >= CUTOFF_HOUR;
+
+  const now = new Date();
+  if (now.getHours() < CUTOFF_HOUR) return false;
+
+  const todaysCutoff = new Date();
+  todaysCutoff.setHours(CUTOFF_HOUR, 0, 0, 0);
+
+  if (lastSettledAt) {
+    const lastSettled = new Date(lastSettledAt);
+    if (lastSettled >= todaysCutoff) return false;
+  }
+
+  return true;
 }

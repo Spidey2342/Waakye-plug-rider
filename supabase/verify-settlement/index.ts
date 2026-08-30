@@ -77,7 +77,7 @@ Deno.serve(async (req) => {
 
     await supabaseAdmin
       .from('riders')
-      .update({ commission_owed: 0 })
+      .update({ commission_owed: 0, last_settled_at: new Date().toISOString() })
       .eq('id', rider_id);
 
     return new Response(

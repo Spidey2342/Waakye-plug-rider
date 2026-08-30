@@ -1,14 +1,44 @@
 const OSRM_BASE = 'https://router.project-osrm.org/route/v1/driving';
 const NOMINATIM_BASE = 'https://nominatim.openstreetmap.org/search';
+const GEOCODE_CACHE_KEY = 'waakye_geocode_cache_v1';
+
+function readCache() {
+  try {
+    return JSON.parse(localStorage.getItem(GEOCODE_CACHE_KEY) || '{}');
+  } catch {
+    return {};
+  }
+}
+
+function writeCache(cache) {
+  try {
+    localStorage.setItem(GEOCODE_CACHE_KEY, JSON.stringify(cache));
+  } catch {
+    // Storage full or unavailable — caching is a speed optimization,
+    // not something worth failing the whole flow over.
+  }
+}
 
 // Turns a plain address string ("Labone, Opposite Zen Garden") into
 // coordinates, using OpenStreetMap's free Nominatim service. No API key.
+// A vendor's address never changes between orders, so once we've looked
+// it up we never hit the network for that exact string again.
 export async function geocodeAddress(address) {
+  const key = address.trim().toLowerCase();
+  if (!key) return null;
+
+  const cache = readCache();
+  if (cache[key]) return cache[key];
+
   const url = `${NOMINATIM_BASE}?format=json&q=${encodeURIComponent(address)}&limit=1`;
   const res = await fetch(url, { headers: { 'Accept-Language': 'en' } });
   const data = await res.json();
   if (!data || data.length === 0) return null;
-  return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
+
+  const coords = { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
+  cache[key] = coords;
+  writeCache(cache);
+  return coords;
 }
 
 // Real driving route + turn-by-turn steps between two points, using OSRM's

@@ -29,13 +29,13 @@ export function EarningsScreen({ rider, onNavigate }) {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [today, owed, recent] = await Promise.all([
+      const [today, owedData, recent] = await Promise.all([
         fetchTodayEarnings(rider.id),
         fetchCommissionOwed(rider.id),
         fetchRecentDeliveries(rider.id, 5),
       ]);
       setEarnedToday(today);
-      setCommissionOwed(owed);
+      setCommissionOwed(owedData.commissionOwed);
       setDeliveries(recent);
     } finally {
       setLoading(false);

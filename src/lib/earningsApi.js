@@ -18,12 +18,12 @@ export async function fetchTodayEarnings(riderId) {
 export async function fetchCommissionOwed(riderId) {
   const { data, error } = await supabase
     .from('riders')
-    .select('commission_owed')
+    .select('commission_owed, last_settled_at')
     .eq('id', riderId)
     .single();
 
   if (error) throw new Error(error.message);
-  return Number(data.commission_owed || 0);
+  return { commissionOwed: Number(data.commission_owed || 0), lastSettledAt: data.last_settled_at };
 }
 
 export async function fetchRecentDeliveries(riderId, limit = 10) {
