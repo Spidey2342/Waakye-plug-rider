@@ -9,7 +9,6 @@ import {
   HandCoins,
   Store,
   Home,
-  Bike,
   User,
   Loader2,
 } from 'lucide-react';
@@ -155,10 +154,10 @@ export function EarningsScreen({ rider, onNavigate }) {
       {/* ── Bottom nav ── */}
       <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 pb-[env(safe-area-inset-bottom)]">
         <div className="max-w-md mx-auto grid grid-cols-4 px-2 py-2">
-          {[
-            { key: 'home', label: 'Deliver', icon: Bike },
-            { key: 'earnings', label: 'Earnings', icon: Wallet },
+         {[
+            { key: 'home', label: 'Home', icon: Home },
             { key: 'history', label: 'History', icon: History },
+            { key: 'earnings', label: 'Earnings', icon: Wallet },
             { key: 'profile', label: 'Profile', icon: User },
           ].map((tab) => {
             const Icon = tab.icon;

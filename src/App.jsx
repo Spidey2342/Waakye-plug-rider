@@ -6,6 +6,7 @@ import { ActiveOrderScreen } from './components/screens/ActiveOrderScreen';
 import { EarningsScreen } from './components/screens/EarningsScreen';
 import { SettleUpScreen } from './components/screens/SettleUpScreen';
 import { shouldLockForSettlement } from './lib/settlementLock';
+import { OrderHistoryScreen } from './components/screens/OrderHistoryScreen';
 import { fetchCommissionOwed } from './lib/earningsApi';
 
 function PlaceholderScreen({ title, onBack }) {
@@ -139,6 +140,18 @@ function App() {
           // A delivery just happened, so commission_owed may have crossed
           // the lock threshold — check again immediately.
           await checkSettlementLock(loggedInRider);
+        }}
+      />
+    );
+  }
+  
+  if (screen === 'history') {
+    return (
+      <OrderHistoryScreen
+        rider={loggedInRider}
+        onNavigate={(tab) => {
+          if (tab === 'history') return;
+          setScreen(tab);
         }}
       />
     );
