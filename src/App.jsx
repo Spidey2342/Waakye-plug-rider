@@ -8,6 +8,7 @@ import { SettleUpScreen } from './components/screens/SettleUpScreen';
 import { shouldLockForSettlement } from './lib/settlementLock';
 import { OrderHistoryScreen } from './components/screens/OrderHistoryScreen';
 import { fetchCommissionOwed } from './lib/earningsApi';
+import { ProfileScreen } from './components/screens/ProfileScreen';
 
 function PlaceholderScreen({ title, onBack }) {
   return (
@@ -144,7 +145,7 @@ function App() {
       />
     );
   }
-  
+
   if (screen === 'history') {
     return (
       <OrderHistoryScreen
@@ -169,14 +170,21 @@ function App() {
     );
   }
 
-  if (screen === 'history') {
-    return <PlaceholderScreen title="Order History" onBack={() => setScreen('home')} />;
-  }
-
   if (screen === 'profile') {
-    return <PlaceholderScreen title="Profile" onBack={() => setScreen('home')} />;
+    return (
+      <ProfileScreen
+        rider={loggedInRider}
+        onNavigate={(tab) => {
+          if (tab === 'profile') return;
+          setScreen(tab);
+        }}
+        onLoggedOut={() => {
+          setLoggedInRider(null);
+          setScreen('login');
+        }}
+      />
+    );
   }
-
   return (
     <LoginScreen
       onSuccess={async (rider) => {
