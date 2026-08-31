@@ -43,6 +43,40 @@ function App() {
       // fail open rather than fail closed on a network hiccup.
     }
   }
+    async function handleApply(formData) {
+    const res = await fetch(
+      `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/add-rider`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+        },
+        body: JSON.stringify({
+          full_name: formData.full_name,
+          phone: formData.phone,
+          pin: formData.pin,
+          photo_url: null,
+          transport_type: formData.transport_type,
+          ghana_card_number: formData.ghana_card_number,
+          home_area: formData.home_area,
+          emergency_contact_name: formData.emergency_contact_name,
+          emergency_contact_phone: formData.emergency_contact_phone,
+          is_self_apply: true,
+        }),
+      }
+    );
+
+    const result = await res.json();
+
+    if (!res.ok) {
+      alert(`Could not submit application: ${result.error || 'Unknown error'}`);
+      throw new Error(result.error || 'Could not submit application');
+    }
+
+    setSuccessMessage(`Thanks, ${formData.full_name}! We'll review your application and reach out soon.`);
+    setScreen('success');
+  }
 
   async function handleAddRider(formData) {
     const res = await fetch(
@@ -110,8 +144,14 @@ function App() {
     );
   }
 
-  if (screen === 'addRider') {
-    return <AddRiderScreen onBack={() => setScreen('login')} onSubmit={handleAddRider} />;
+  if (screen === 'apply') {
+    return (
+      <AddRiderScreen
+        mode="apply"
+        onBack={() => setScreen('login')}
+        onSubmit={handleApply}
+      />
+    );
   }
 
   if (screen === 'home') {
@@ -186,14 +226,14 @@ function App() {
     );
   }
   return (
-    <LoginScreen
+        <LoginScreen
       onSuccess={async (rider) => {
         setLoggedInRider(rider);
         setScreen('home');
         await checkSettlementLock(rider);
       }}
       onForgotPin={() => {}}
-      onApply={() => {}}
+      onApply={() => setScreen('apply')}
     />
   );
 }

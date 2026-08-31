@@ -19,7 +19,7 @@ import {
   Lock,
 } from 'lucide-react';
 
-const STEPS = ['Identity', 'Work Details', 'Emergency Contact', 'Float & Status'];
+const STEPS = ['Identity', 'Work Details', 'Emergency Contact', 'Almost Done'];
 
 const TRANSPORT_OPTIONS = [
   { key: 'motorbike', label: 'Motorbike', icon: Bike },
@@ -42,7 +42,9 @@ const slideVariants = {
   exit: (direction) => ({ x: direction > 0 ? -40 : 40, opacity: 0 }),
 };
 
-export function AddRiderScreen({ onBack, onSubmit }) {
+export function AddRiderScreen({ onBack, onSubmit, mode = 'admin' }) {
+  const isApply = mode === 'apply';
+
   const [stepIndex, setStepIndex] = useState(0);
   const [direction, setDirection] = useState(1);
   const [submitting, setSubmitting] = useState(false);
@@ -122,7 +124,6 @@ export function AddRiderScreen({ onBack, onSubmit }) {
   return (
     <div className="min-h-[100dvh] bg-[#fefaf4] flex flex-col [webkit-tap-highlight-color:transparent]">
 
-      {/* ── Header ── */}
       <div className="sticky top-0 z-20 bg-[#fefaf4]/95 backdrop-blur-sm border-b border-gray-200 shrink-0">
         <div className="max-w-md mx-auto px-4 py-4 flex items-center justify-between">
           <button
@@ -131,7 +132,7 @@ export function AddRiderScreen({ onBack, onSubmit }) {
           >
             <ChevronLeft className="w-5 h-5" />
           </button>
-          <h1 className="font-bold text-lg">Add Rider</h1>
+          <h1 className="font-bold text-lg">{isApply ? 'Apply to Ride' : 'Add Rider'}</h1>
           <motion.div
             animate={{ rotate: [-8, 8, -8] }}
             transition={{ duration: 2.5, repeat: Infinity, ease: 'easeInOut' }}
@@ -141,7 +142,6 @@ export function AddRiderScreen({ onBack, onSubmit }) {
           </motion.div>
         </div>
 
-        {/* ── Progress dots + label ── */}
         <div className="max-w-md mx-auto px-4 pb-4">
           <div className="flex items-center gap-2 mb-2">
             {STEPS.map((_, i) => (
@@ -161,7 +161,6 @@ export function AddRiderScreen({ onBack, onSubmit }) {
         </div>
       </div>
 
-      {/* ── Step content ── */}
       <div className="flex-1 overflow-y-auto">
         <div className="max-w-md mx-auto px-4 py-6 pb-8">
           <AnimatePresence mode="wait" custom={direction}>
@@ -175,7 +174,6 @@ export function AddRiderScreen({ onBack, onSubmit }) {
               transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
               className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 space-y-4"
             >
-              {/* ── Step 1: Identity ── */}
               {stepIndex === 0 && (
                 <>
                   <div className="flex justify-center mb-2">
@@ -243,7 +241,7 @@ export function AddRiderScreen({ onBack, onSubmit }) {
 
                   <div className="pt-2 border-t border-gray-100">
                     <p className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-3">
-                      Have the rider set their own login PIN
+                      {isApply ? 'Choose a login PIN' : "Have the rider set their own login PIN"}
                     </p>
                     <div className="grid grid-cols-2 gap-3">
                       <div>
@@ -277,11 +275,15 @@ export function AddRiderScreen({ onBack, onSubmit }) {
                     {form.confirm_pin.length === 4 && form.pin !== form.confirm_pin && (
                       <p className="text-[11px] text-red-500 font-medium mt-1.5">PINs don't match</p>
                     )}
+                    {isApply && (
+                      <p className="text-[11px] text-gray-400 mt-1.5">
+                        You'll use this to log in once your application is approved.
+                      </p>
+                    )}
                   </div>
                 </>
               )}
 
-              {/* ── Step 2: Work Details ── */}
               {stepIndex === 1 && (
                 <>
                   <div>
@@ -329,7 +331,6 @@ export function AddRiderScreen({ onBack, onSubmit }) {
                 </>
               )}
 
-              {/* ── Step 3: Emergency Contact ── */}
               {stepIndex === 2 && (
                 <>
                   <div>
@@ -364,76 +365,98 @@ export function AddRiderScreen({ onBack, onSubmit }) {
                 </>
               )}
 
-              {/* ── Step 4: Float / Deposit + Status ── */}
               {stepIndex === 3 && (
-                <>
-                  <div className="grid grid-cols-2 gap-3">
+                isApply ? (
+                  <>
+                    <div className="text-center pb-2">
+                      <p className="font-bold text-base mb-1">Almost done!</p>
+                      <p className="text-sm text-gray-500 leading-relaxed">
+                        We'll review your application and reach out to arrange next steps, including your starter deposit.
+                      </p>
+                    </div>
                     <div>
-                      <FieldLabel>Deposit Collected</FieldLabel>
+                      <FieldLabel>Anything else you'd like us to know? (Optional)</FieldLabel>
                       <div className="relative">
-                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold text-[#7a1d1d]">GH₵</span>
-                        <input
-                          type="number"
-                          value={form.deposit_amount}
-                          onChange={(e) => update('deposit_amount', e.target.value)}
-                          placeholder="200.00"
-                          className="w-full bg-[#faf6ee] border border-gray-200 rounded-xl pl-11 pr-3 py-3 text-sm outline-none transition-all focus:border-[#7a1d1d]/50 focus:bg-white focus:shadow-[0_0_0_3px_rgba(122,29,29,0.08)]"
+                        <StickyNote className="w-4 h-4 text-gray-400 absolute left-4 top-4" />
+                        <textarea
+                          value={form.notes}
+                          onChange={(e) => update('notes', e.target.value)}
+                          placeholder="e.g. availability, experience..."
+                          rows={4}
+                          className={`${fieldClassIcon} resize-none`}
                         />
                       </div>
                     </div>
-                    <div>
-                      <FieldLabel>Date Collected</FieldLabel>
-                      <input
-                        type="date"
-                        value={form.deposit_date}
-                        onChange={(e) => update('deposit_date', e.target.value)}
-                        className={fieldClass}
-                      />
+                  </>
+                ) : (
+                  <>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <FieldLabel>Deposit Collected</FieldLabel>
+                        <div className="relative">
+                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold text-[#7a1d1d]">GH₵</span>
+                          <input
+                            type="number"
+                            value={form.deposit_amount}
+                            onChange={(e) => update('deposit_amount', e.target.value)}
+                            placeholder="200.00"
+                            className="w-full bg-[#faf6ee] border border-gray-200 rounded-xl pl-11 pr-3 py-3 text-sm outline-none transition-all focus:border-[#7a1d1d]/50 focus:bg-white focus:shadow-[0_0_0_3px_rgba(122,29,29,0.08)]"
+                          />
+                        </div>
+                      </div>
+                      <div>
+                        <FieldLabel>Date Collected</FieldLabel>
+                        <input
+                          type="date"
+                          value={form.deposit_date}
+                          onChange={(e) => update('deposit_date', e.target.value)}
+                          className={fieldClass}
+                        />
+                      </div>
                     </div>
-                  </div>
 
-                  <div>
-                    <FieldLabel>Notes (Optional)</FieldLabel>
-                    <div className="relative">
-                      <StickyNote className="w-4 h-4 text-gray-400 absolute left-4 top-4" />
-                      <textarea
-                        value={form.notes}
-                        onChange={(e) => update('notes', e.target.value)}
-                        placeholder="Any additional remarks..."
-                        rows={3}
-                        className={`${fieldClassIcon} resize-none`}
-                      />
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-between gap-4 pt-2 border-t border-gray-100">
                     <div>
-                      <p className="font-bold text-sm">Active</p>
-                      <p className="text-xs text-gray-500 mt-0.5 leading-snug">
-                        Controls whether they show up as available to accept orders.
-                      </p>
+                      <FieldLabel>Notes (Optional)</FieldLabel>
+                      <div className="relative">
+                        <StickyNote className="w-4 h-4 text-gray-400 absolute left-4 top-4" />
+                        <textarea
+                          value={form.notes}
+                          onChange={(e) => update('notes', e.target.value)}
+                          placeholder="Any additional remarks..."
+                          rows={3}
+                          className={`${fieldClassIcon} resize-none`}
+                        />
+                      </div>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => update('is_active', !form.is_active)}
-                      className={`relative w-12 h-7 rounded-full shrink-0 transition-colors ${form.is_active ? 'bg-[#7a1d1d]' : 'bg-gray-300'}`}
-                    >
-                      <motion.span
-                        layout
-                        transition={{ type: 'spring', stiffness: 500, damping: 32 }}
-                        className="absolute top-1 w-5 h-5 rounded-full bg-white shadow-md"
-                        style={{ left: form.is_active ? 22 : 4 }}
-                      />
-                    </button>
-                  </div>
-                </>
+
+                    <div className="flex items-center justify-between gap-4 pt-2 border-t border-gray-100">
+                      <div>
+                        <p className="font-bold text-sm">Active</p>
+                        <p className="text-xs text-gray-500 mt-0.5 leading-snug">
+                          Controls whether they show up as available to accept orders.
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => update('is_active', !form.is_active)}
+                        className={`relative w-12 h-7 rounded-full shrink-0 transition-colors ${form.is_active ? 'bg-[#7a1d1d]' : 'bg-gray-300'}`}
+                      >
+                        <motion.span
+                          layout
+                          transition={{ type: 'spring', stiffness: 500, damping: 32 }}
+                          className="absolute top-1 w-5 h-5 rounded-full bg-white shadow-md"
+                          style={{ left: form.is_active ? 22 : 4 }}
+                        />
+                      </button>
+                    </div>
+                  </>
+                )
               )}
             </motion.div>
           </AnimatePresence>
         </div>
       </div>
 
-      {/* ── Sticky footer: Back / Next / Add Rider ── */}
       <div className="sticky bottom-0 bg-[#fefaf4]/95 backdrop-blur-sm border-t border-gray-200 px-4 pt-4 pb-[calc(env(safe-area-inset-bottom)+16px)] shrink-0">
         <div className="max-w-md mx-auto flex gap-3">
           {stepIndex > 0 && (
@@ -469,12 +492,12 @@ export function AddRiderScreen({ onBack, onSubmit }) {
                 {submitting ? (
                   <motion.span key="loading" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex items-center gap-2">
                     <Loader2 className="w-4 h-4 animate-spin" />
-                    Adding Rider...
+                    {isApply ? 'Submitting...' : 'Adding Rider...'}
                   </motion.span>
                 ) : (
                   <motion.span key="idle" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex items-center gap-2">
                     <Check className="w-4 h-4" />
-                    Add Rider
+                    {isApply ? 'Submit Application' : 'Add Rider'}
                   </motion.span>
                 )}
               </AnimatePresence>
