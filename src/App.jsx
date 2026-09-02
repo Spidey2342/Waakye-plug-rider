@@ -9,6 +9,7 @@ import { shouldLockForSettlement } from './lib/settlementLock';
 import { OrderHistoryScreen } from './components/screens/OrderHistoryScreen';
 import { fetchCommissionOwed } from './lib/earningsApi';
 import { ProfileScreen } from './components/screens/ProfileScreen';
+import { ForgotPinScreen } from './components/screens/ForgotPinScreen';
 
 function PlaceholderScreen({ title, onBack }) {
   return (
@@ -225,14 +226,18 @@ function App() {
       />
     );
   }
+    if (screen === 'forgotPin') {
+    return <ForgotPinScreen onBack={() => setScreen('login')} />;
+  }
+
   return (
-        <LoginScreen
+         <LoginScreen
       onSuccess={async (rider) => {
         setLoggedInRider(rider);
         setScreen('home');
         await checkSettlementLock(rider);
       }}
-      onForgotPin={() => {}}
+      onForgotPin={() => setScreen('forgotPin')}
       onApply={() => setScreen('apply')}
     />
   );

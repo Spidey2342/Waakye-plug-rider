@@ -22,3 +22,21 @@ export async function riderLogin(phone, pin) {
 
   return rider;
 }
+
+export async function resetPin(phone, ghanaCardNumber, newPin) {
+  const res = await fetch(
+    `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/reset-pin`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+      },
+      body: JSON.stringify({ phone, ghana_card_number: ghanaCardNumber, new_pin: newPin }),
+    }
+  );
+
+  const result = await res.json();
+  if (!res.ok) throw new Error(result.error || 'Could not reset PIN');
+  return result;
+}
