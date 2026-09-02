@@ -1,4 +1,4 @@
-const CUTOFF_HOUR = 12;
+const CUTOFF_HOUR = 0;
 
 export function shouldLockForSettlement(commissionOwed, lastSettledAt) {
   if (!commissionOwed || commissionOwed <= 0) return false;
