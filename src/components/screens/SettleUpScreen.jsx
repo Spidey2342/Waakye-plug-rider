@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Lock, Bike, Banknote, HandCoins, ShieldCheck, ArrowRight, Loader2 } from 'lucide-react';
-import { fetchTodaySettlementSummary, verifySettlement } from '../../lib/settlementApi';
+import { fetchTodaySettlementSummary, createSettlementIntent, verifySettlement } from '../../lib/settlementApi';
 import { payWithPaystack } from '../../lib/paystack';
 
 export function SettleUpScreen({ rider, onSettled }) {
@@ -28,21 +28,23 @@ export function SettleUpScreen({ rider, onSettled }) {
     load();
   }, [load]);
 
-  async function handlePay() {
+    async function handlePay() {
     if (!summary) return;
     setError(null);
     setPaying(true);
 
-    // Riders log in with a synthetic email, same pattern as account creation.
     const email = `${rider.profiles?.phone}@riders.waakyeplug.app`;
 
     try {
+      const { reference, amount } = await createSettlementIntent(rider.id);
+
       await payWithPaystack({
         email,
-        amountGHS: summary.commissionOwed,
-        onSuccess: async (reference) => {
+        amountGHS: amount,
+        reference,
+        onSuccess: async (paidReference) => {
           try {
-            await verifySettlement(reference, rider.id);
+            await verifySettlement(paidReference, rider.id);
             onSettled();
           } catch (err) {
             setError(err.message);
@@ -57,7 +59,7 @@ export function SettleUpScreen({ rider, onSettled }) {
       setPaying(false);
     }
   }
-
+  
   return (
     <div className="min-h-[100dvh] bg-[#fefaf4] flex flex-col items-center px-6 pt-16 pb-10 [webkit-tap-highlight-color:transparent]">
       <div className="w-full max-w-sm flex flex-col items-center">

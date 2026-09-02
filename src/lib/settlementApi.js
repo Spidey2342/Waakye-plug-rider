@@ -51,3 +51,21 @@ export async function verifySettlement(reference, riderId) {
   if (!res.ok) throw new Error(result.error || 'Verification failed');
   return result;
 }
+
+export async function createSettlementIntent(riderId) {
+  const res = await fetch(
+    `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create-settlement`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+      },
+      body: JSON.stringify({ rider_id: riderId }),
+    }
+  );
+
+  const result = await res.json();
+  if (!res.ok) throw new Error(result.error || 'Could not start settlement');
+  return result;
+}

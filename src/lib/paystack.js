@@ -11,7 +11,7 @@ function loadPaystackScript() {
   });
 }
 
-export async function payWithPaystack({ email, amountGHS, onSuccess, onClose }) {
+export async function payWithPaystack({ email, amountGHS, reference, onSuccess, onClose }) {
   await loadPaystackScript();
 
   const publicKey = import.meta.env.VITE_PAYSTACK_PUBLIC_KEY;
@@ -20,9 +20,9 @@ export async function payWithPaystack({ email, amountGHS, onSuccess, onClose }) 
   const handler = window.PaystackPop.setup({
     key: publicKey,
     email,
-    amount: Math.round(amountGHS * 100), // Paystack expects pesewas, not cedis
+    amount: Math.round(amountGHS * 100),
     currency: 'GHS',
-    ref: `settle_${Date.now()}`,
+    ref: reference,
     callback: (response) => onSuccess(response.reference),
     onClose,
   });
