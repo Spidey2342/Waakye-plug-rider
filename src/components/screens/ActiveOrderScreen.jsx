@@ -17,13 +17,16 @@ import {
 } from 'lucide-react';
 import { markPickedUp, markDelivered } from '../../lib/ordersApi';
 import { geocodeAddress, getRoute, distanceMeters, speak } from '../../lib/mapService';
+import { reportIssue } from '../../lib/issuesApi';
+
+// TODO: replace with your real WhatsApp number (country code, no + or spaces)
+// once you're ready to point Chat Support at it — e.g. '233599995651'.
+const SUPPORT_WHATSAPP_NUMBER = 'REPLACE_ME';
 
 const STAGES = ['Heading to Vendor', 'At Vendor', 'Heading to Customer', 'Delivered'];
-const ARRIVAL_THRESHOLD_M = 100; // "close enough" to vendor/customer to flip stage
-const STEP_THRESHOLD_M = 40; // "close enough" to a turn to announce the next one
+const ARRIVAL_THRESHOLD_M = 100;
+const STEP_THRESHOLD_M = 40;
 
-// Small colored dot markers built from plain divs — avoids the classic
-// Leaflet-in-a-bundler broken-default-icon problem entirely, no image assets needed.
 function makeDivIcon(color, pulse = false) {
   return L.divIcon({
     className: '',
@@ -58,16 +61,19 @@ export function ActiveOrderScreen({ order: initialOrder, onDelivered, onBack }) 
   const [mapError, setMapError] = useState(null);
   const [actionLoading, setActionLoading] = useState(false);
   const [showDeliverConfirm, setShowDeliverConfirm] = useState(false);
+  const [showReportIssue, setShowReportIssue] = useState(false);
+  const [issueText, setIssueText] = useState('');
+  const [issueSubmitting, setIssueSubmitting] = useState(false);
+  const [issueSubmitted, setIssueSubmitted] = useState(false);
 
   const target = order.status === 'picked_up' ? customerCoords : vendorCoords;
 
-  // ── One-time setup: inject the pulse keyframe + init the Leaflet map ──
   useEffect(() => {
     const style = document.createElement('style');
     style.textContent = `@keyframes pulseDot { 0%,100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.6); opacity: 0.6; } }`;
     document.head.appendChild(style);
 
-    const map = L.map(mapContainerRef.current, { zoomControl: false }).setView([5.6037, -0.1870], 13); // default: Accra
+    const map = L.map(mapContainerRef.current, { zoomControl: false }).setView([5.6037, -0.1870], 13);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution: '&copy; OpenStreetMap contributors',
       maxZoom: 19,
@@ -80,7 +86,6 @@ export function ActiveOrderScreen({ order: initialOrder, onDelivered, onBack }) 
     };
   }, []);
 
-  // ── Geocode vendor + customer addresses once, on mount (cached — see mapService.js) ──
   useEffect(() => {
     async function geocodeBoth() {
       try {
@@ -100,19 +105,12 @@ export function ActiveOrderScreen({ order: initialOrder, onDelivered, onBack }) 
     geocodeBoth();
   }, [order.vendors?.location, order.delivery_address]);
 
-  // ── Track the rider's live GPS position ──
-  // Two-step approach: grab a fast, rough position immediately (network/cell
-  // based — usually returns in 1-2 seconds) so the route can start
-  // calculating right away, THEN switch to high-accuracy GPS tracking for
-  // the live blue dot and turn-by-turn precision. Without this, waiting on
-  // a cold high-accuracy GPS lock alone can take 30+ seconds on some phones,
-  // during which nothing on screen would move.
   useEffect(() => {
     if (!('geolocation' in navigator)) return;
 
     navigator.geolocation.getCurrentPosition(
       (pos) => setRiderPosition({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-      () => {}, // silent — watchPosition below will surface a real error if location truly isn't available
+      () => {},
       { enableHighAccuracy: false, timeout: 8000, maximumAge: 60000 }
     );
 
@@ -124,14 +122,6 @@ export function ActiveOrderScreen({ order: initialOrder, onDelivered, onBack }) 
     return () => navigator.geolocation.clearWatch(watchId);
   }, []);
 
-  // ── Fetch/refresh the route whenever the target changes, the order status
-  // changes, or the rider's position first becomes available. That last
-  // part is the key fix: previously this effect only depended on target and
-  // status, so if GPS hadn't resolved yet the moment the target was set, the
-  // route calculation would silently never fire again — "Calculating ETA"
-  // forever. Using Boolean(riderPosition) (not the raw coordinates) means
-  // this re-runs exactly once when a position first arrives, without
-  // re-firing on every subsequent GPS tick while walking/riding.
   const hasPosition = Boolean(riderPosition);
   useEffect(() => {
     if (!riderPosition || !target) return;
@@ -157,7 +147,6 @@ export function ActiveOrderScreen({ order: initialOrder, onDelivered, onBack }) 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [target?.lat, target?.lng, order.status, hasPosition]);
 
-  // ── Update map markers, route line, and rider dot whenever data changes ──
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
@@ -181,7 +170,6 @@ export function ActiveOrderScreen({ order: initialOrder, onDelivered, onBack }) 
     }
   }, [vendorCoords, customerCoords, riderPosition, route]);
 
-  // ── Check proximity: flip "At Vendor" stage, advance turn-by-turn steps, and speak them ──
   useEffect(() => {
     if (!riderPosition) return;
 
@@ -243,10 +231,27 @@ export function ActiveOrderScreen({ order: initialOrder, onDelivered, onBack }) 
     else setMapError('No phone number on file for this vendor.');
   }
 
+  function openChatSupport() {
+    const message = encodeURIComponent(`Hi, I need help with order #WP-${order.id.slice(0, 4).toUpperCase()}`);
+    window.open(`https://wa.me/${SUPPORT_WHATSAPP_NUMBER}?text=${message}`, '_blank');
+  }
+
+  async function handleSubmitIssue() {
+    if (!issueText.trim()) return;
+    setIssueSubmitting(true);
+    try {
+      await reportIssue(order.id, order.rider_id, issueText.trim());
+      setIssueSubmitted(true);
+    } catch (err) {
+      setMapError(err.message);
+    } finally {
+      setIssueSubmitting(false);
+    }
+  }
+
   return (
     <div className="min-h-[100dvh] bg-[#fefaf4] flex flex-col [webkit-tap-highlight-color:transparent]">
 
-      {/* ── Header ── */}
       <div className="px-4 pt-4 pb-3 bg-[#fefaf4] z-10">
         <div className="flex items-center justify-between mb-4">
           <button onClick={onBack} className="w-9 h-9 rounded-full bg-white border border-gray-200 flex items-center justify-center active:scale-90 transition-transform">
@@ -263,7 +268,6 @@ export function ActiveOrderScreen({ order: initialOrder, onDelivered, onBack }) 
           </button>
         </div>
 
-        {/* ── Status stepper ── */}
         <div className="flex items-center">
           {STAGES.map((stage, i) => (
             <div key={stage} className="flex-1 flex items-center">
@@ -294,7 +298,6 @@ export function ActiveOrderScreen({ order: initialOrder, onDelivered, onBack }) 
         </div>
       </div>
 
-      {/* ── Next-turn banner ── */}
       <AnimatePresence>
         {nextStep && order.status !== 'delivered' && (
           <motion.div
@@ -314,7 +317,6 @@ export function ActiveOrderScreen({ order: initialOrder, onDelivered, onBack }) 
         )}
       </AnimatePresence>
 
-      {/* ── Map ── */}
       <div className="relative flex-1 min-h-[260px] mx-4 rounded-2xl overflow-hidden border border-gray-200">
         <div ref={mapContainerRef} className="absolute inset-0" />
         {(loadingRoute && !route) && (
@@ -331,7 +333,6 @@ export function ActiveOrderScreen({ order: initialOrder, onDelivered, onBack }) 
         </div>
       )}
 
-      {/* ── Order + money panel ── */}
       <div className="bg-white rounded-t-3xl shadow-[0_-4px_20px_rgba(0,0,0,0.04)] mt-3 px-5 pt-5 pb-[calc(env(safe-area-inset-bottom)+20px)]">
         <div className="flex items-center justify-between mb-4">
           <div className="min-w-0">
@@ -386,18 +387,23 @@ export function ActiveOrderScreen({ order: initialOrder, onDelivered, onBack }) 
         )}
 
         <div className="grid grid-cols-2 gap-3">
-          <button className="flex items-center justify-center gap-2 border border-gray-200 rounded-xl py-3 text-sm font-bold text-gray-600">
+          <button
+            onClick={() => setShowReportIssue(true)}
+            className="flex items-center justify-center gap-2 border border-gray-200 rounded-xl py-3 text-sm font-bold text-gray-600"
+          >
             <AlertCircle className="w-4 h-4" />
             Report Issue
           </button>
-          <button className="flex items-center justify-center gap-2 border border-gray-200 rounded-xl py-3 text-sm font-bold text-gray-600">
+          <button
+            onClick={openChatSupport}
+            className="flex items-center justify-center gap-2 border border-gray-200 rounded-xl py-3 text-sm font-bold text-gray-600"
+          >
             <MessageCircle className="w-4 h-4" />
             Chat Support
           </button>
         </div>
       </div>
 
-      {/* ── Cash confirmation modal ── */}
       <AnimatePresence>
         {showDeliverConfirm && (
           <motion.div
@@ -434,6 +440,70 @@ export function ActiveOrderScreen({ order: initialOrder, onDelivered, onBack }) 
               >
                 Cancel
               </button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showReportIssue && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/40 flex items-end justify-center z-50"
+            onClick={() => { setShowReportIssue(false); setIssueSubmitted(false); setIssueText(''); }}
+          >
+            <motion.div
+              initial={{ y: 100 }}
+              animate={{ y: 0 }}
+              exit={{ y: 100 }}
+              transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-white rounded-t-3xl w-full max-w-md p-6 pb-[calc(env(safe-area-inset-bottom)+24px)]"
+            >
+              {issueSubmitted ? (
+                <div className="text-center py-4">
+                  <Check className="w-10 h-10 text-emerald-500 mx-auto mb-3" />
+                  <p className="font-bold text-lg mb-1">Issue reported</p>
+                  <p className="text-sm text-gray-500 mb-5">We've logged this and will follow up if needed.</p>
+                  <button
+                    onClick={() => { setShowReportIssue(false); setIssueSubmitted(false); setIssueText(''); }}
+                    className="w-full bg-[#7a1d1d] text-white py-3.5 rounded-2xl font-bold"
+                  >
+                    Done
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <p className="font-bold text-lg mb-1">Report an issue</p>
+                  <p className="text-sm text-gray-500 mb-4">
+                    Let us know what's wrong with this order — wrong address, vendor closed, anything.
+                  </p>
+                  <textarea
+                    value={issueText}
+                    onChange={(e) => setIssueText(e.target.value)}
+                    placeholder="Describe the issue..."
+                    rows={4}
+                    className="w-full bg-[#faf6ee] border border-gray-200 rounded-xl p-3 text-sm outline-none resize-none mb-4 focus:border-[#7a1d1d]/50"
+                  />
+                  <motion.button
+                    whileTap={{ scale: 0.98 }}
+                    onClick={handleSubmitIssue}
+                    disabled={issueSubmitting || !issueText.trim()}
+                    className="w-full bg-[#7a1d1d] text-white py-4 rounded-2xl font-bold text-base flex items-center justify-center gap-2 disabled:opacity-60"
+                  >
+                    {issueSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                    Submit Report
+                  </motion.button>
+                  <button
+                    onClick={() => { setShowReportIssue(false); setIssueText(''); }}
+                    className="w-full text-center text-sm font-bold text-gray-400 mt-3 py-2"
+                  >
+                    Cancel
+                  </button>
+                </>
+              )}
             </motion.div>
           </motion.div>
         )}
