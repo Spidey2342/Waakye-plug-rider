@@ -21,7 +21,7 @@ import { reportIssue } from '../../lib/issuesApi';
 
 // TODO: replace with your real WhatsApp number (country code, no + or spaces)
 // once you're ready to point Chat Support at it — e.g. '233599995651'.
-const SUPPORT_WHATSAPP_NUMBER = 'REPLACE_ME';
+const SUPPORT_WHATSAPP_NUMBER = '233599995651';
 
 const STAGES = ['Heading to Vendor', 'At Vendor', 'Heading to Customer', 'Delivered'];
 const ARRIVAL_THRESHOLD_M = 100;
