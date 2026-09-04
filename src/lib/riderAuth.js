@@ -23,6 +23,24 @@ export async function riderLogin(phone, pin) {
   return rider;
 }
 
+// Checks whether a Supabase session already exists (e.g. after a page
+// reload) and, if so, restores the full rider record from it — this is
+// what stops a reload from bouncing an already-logged-in rider back to
+// the Login screen for no reason.
+export async function getCurrentRider() {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) return null;
+
+  const { data: rider, error } = await supabase
+    .from('riders')
+    .select('*, profiles(full_name, phone)')
+    .eq('profile_id', session.user.id)
+    .single();
+
+  if (error || !rider || !rider.is_approved) return null;
+  return rider;
+}
+
 export async function resetPin(phone, ghanaCardNumber, newPin) {
   const res = await fetch(
     `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/reset-pin`,

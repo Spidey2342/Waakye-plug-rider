@@ -14,6 +14,7 @@ import {
   Loader2,
 } from 'lucide-react';
 import { fetchAvailableOrders, acceptOrder, setRiderOnlineStatus } from '../../lib/ordersApi';
+import { supabase } from '../../lib/supabase';
 
 function OrderCard({ order, index, onAccept, accepting }) {
   const vendorName = order.vendors?.business_name ?? 'Vendor';
@@ -108,10 +109,26 @@ export function HomeScreen({ rider, onNavigate, onOrderAccepted }) {
 
   useEffect(() => {
     loadOrders();
-    // Simple polling instead of a realtime subscription for now — good
-    // enough for a handful of riders, easy to upgrade later if needed.
-    const interval = setInterval(loadOrders, 15000);
-    return () => clearInterval(interval);
+
+    // Real-time: any change to the orders table (a new order appears, or
+    // another rider claims one) refetches immediately — no more waiting on
+    // a manual refresh to see current availability.
+    const channel = supabase
+      .channel('available-orders')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, () => {
+        loadOrders();
+      })
+      .subscribe();
+
+    // Kept as a fallback safety net in case the realtime connection ever
+    // drops silently (e.g. brief network loss) — cheap insurance, not the
+    // primary update mechanism anymore.
+    const interval = setInterval(loadOrders, 30000);
+
+    return () => {
+      supabase.removeChannel(channel);
+      clearInterval(interval);
+    };
   }, [loadOrders]);
 
   async function toggleOnline() {

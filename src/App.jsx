@@ -5,11 +5,12 @@ import { HomeScreen } from './components/screens/HomeScreen';
 import { ActiveOrderScreen } from './components/screens/ActiveOrderScreen';
 import { EarningsScreen } from './components/screens/EarningsScreen';
 import { SettleUpScreen } from './components/screens/SettleUpScreen';
-import { shouldLockForSettlement } from './lib/settlementLock';
 import { OrderHistoryScreen } from './components/screens/OrderHistoryScreen';
-import { fetchCommissionOwed } from './lib/earningsApi';
 import { ProfileScreen } from './components/screens/ProfileScreen';
 import { ForgotPinScreen } from './components/screens/ForgotPinScreen';
+import { shouldLockForSettlement } from './lib/settlementLock';
+import { fetchCommissionOwed } from './lib/earningsApi';
+import { getCurrentRider } from './lib/riderAuth';
 
 function PlaceholderScreen({ title, onBack }) {
   return (
@@ -29,10 +30,9 @@ function App() {
   const [loggedInRider, setLoggedInRider] = useState(null);
   const [activeOrder, setActiveOrder] = useState(null);
   const [isLocked, setIsLocked] = useState(false);
+  const [restoringSession, setRestoringSession] = useState(true);
 
-  // ── Settlement lock check: runs once right after login, and again
-  // whenever we return to Home (e.g. after a delivery bumps commission_owed) ──
- async function checkSettlementLock(rider) {
+  async function checkSettlementLock(rider) {
     try {
       const { commissionOwed, lastSettledAt } = await fetchCommissionOwed(rider.id);
       if (shouldLockForSettlement(commissionOwed, lastSettledAt)) {
@@ -40,44 +40,23 @@ function App() {
         setScreen('settleUp');
       }
     } catch {
-      // If the check itself fails, don't lock the rider out unfairly —
-      // fail open rather than fail closed on a network hiccup.
+      // Fail open rather than fail closed on a network hiccup.
     }
   }
-    async function handleApply(formData) {
-    const res = await fetch(
-      `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/add-rider`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
-        },
-        body: JSON.stringify({
-          full_name: formData.full_name,
-          phone: formData.phone,
-          pin: formData.pin,
-          photo_url: null,
-          transport_type: formData.transport_type,
-          ghana_card_number: formData.ghana_card_number,
-          home_area: formData.home_area,
-          emergency_contact_name: formData.emergency_contact_name,
-          emergency_contact_phone: formData.emergency_contact_phone,
-          is_self_apply: true,
-        }),
+
+  // On every fresh page load, check whether a session already exists
+  // before defaulting to the Login screen.
+  useEffect(() => {
+    (async () => {
+      const rider = await getCurrentRider();
+      if (rider) {
+        setLoggedInRider(rider);
+        setScreen('home');
+        await checkSettlementLock(rider);
       }
-    );
-
-    const result = await res.json();
-
-    if (!res.ok) {
-      alert(`Could not submit application: ${result.error || 'Unknown error'}`);
-      throw new Error(result.error || 'Could not submit application');
-    }
-
-    setSuccessMessage(`Thanks, ${formData.full_name}! We'll review your application and reach out soon.`);
-    setScreen('success');
-  }
+      setRestoringSession(false);
+    })();
+  }, []);
 
   async function handleAddRider(formData) {
     const res = await fetch(
@@ -114,8 +93,45 @@ function App() {
     setScreen('success');
   }
 
-  // ── Settlement lock overrides everything else, no matter what screen
-  // state thinks it should be showing ──
+  async function handleApply(formData) {
+    const res = await fetch(
+      `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/add-rider`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+        },
+        body: JSON.stringify({
+          full_name: formData.full_name,
+          phone: formData.phone,
+          pin: formData.pin,
+          photo_url: null,
+          transport_type: formData.transport_type,
+          ghana_card_number: formData.ghana_card_number,
+          home_area: formData.home_area,
+          emergency_contact_name: formData.emergency_contact_name,
+          emergency_contact_phone: formData.emergency_contact_phone,
+          is_self_apply: true,
+        }),
+      }
+    );
+
+    const result = await res.json();
+
+    if (!res.ok) {
+      alert(`Could not submit application: ${result.error || 'Unknown error'}`);
+      throw new Error(result.error || 'Could not submit application');
+    }
+
+    setSuccessMessage(`Thanks, ${formData.full_name}! We'll review your application and reach out soon.`);
+    setScreen('success');
+  }
+
+  if (restoringSession) {
+    return <div className="min-h-[100dvh] bg-[#fefaf4]" />;
+  }
+
   if (isLocked && loggedInRider) {
     return (
       <SettleUpScreen
@@ -145,14 +161,12 @@ function App() {
     );
   }
 
+  if (screen === 'addRider') {
+    return <AddRiderScreen onBack={() => setScreen('login')} onSubmit={handleAddRider} />;
+  }
+
   if (screen === 'apply') {
-    return (
-      <AddRiderScreen
-        mode="apply"
-        onBack={() => setScreen('login')}
-        onSubmit={handleApply}
-      />
-    );
+    return <AddRiderScreen mode="apply" onBack={() => setScreen('login')} onSubmit={handleApply} />;
   }
 
   if (screen === 'home') {
@@ -179,21 +193,7 @@ function App() {
         onDelivered={async () => {
           setActiveOrder(null);
           setScreen('home');
-          // A delivery just happened, so commission_owed may have crossed
-          // the lock threshold — check again immediately.
           await checkSettlementLock(loggedInRider);
-        }}
-      />
-    );
-  }
-
-  if (screen === 'history') {
-    return (
-      <OrderHistoryScreen
-        rider={loggedInRider}
-        onNavigate={(tab) => {
-          if (tab === 'history') return;
-          setScreen(tab);
         }}
       />
     );
@@ -205,6 +205,18 @@ function App() {
         rider={loggedInRider}
         onNavigate={(tab) => {
           if (tab === 'earnings') return;
+          setScreen(tab);
+        }}
+      />
+    );
+  }
+
+  if (screen === 'history') {
+    return (
+      <OrderHistoryScreen
+        rider={loggedInRider}
+        onNavigate={(tab) => {
+          if (tab === 'history') return;
           setScreen(tab);
         }}
       />
@@ -226,12 +238,13 @@ function App() {
       />
     );
   }
-    if (screen === 'forgotPin') {
+
+  if (screen === 'forgotPin') {
     return <ForgotPinScreen onBack={() => setScreen('login')} />;
   }
 
   return (
-         <LoginScreen
+    <LoginScreen
       onSuccess={async (rider) => {
         setLoggedInRider(rider);
         setScreen('home');
