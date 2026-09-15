@@ -35,6 +35,14 @@ const STEP_THRESHOLD_M = 40;
 // warn the rider instead of silently trusting it.
 const MIN_USABLE_ACCURACY_M = 400;
 
+// A fix worse than THIS is not a "low-accuracy GPS reading" anymore — it's
+// an IP/network-based guess (can be off by entire cities, e.g. reporting
+// Accra while the rider is actually in Ho). We never use a fix this bad for
+// anything, even as a first-load fallback: no marker, no route, no ETA.
+// Better to show "waiting for GPS" than to plot the rider hundreds of
+// kilometers from where they actually are.
+const UNUSABLE_ACCURACY_M = 3000;
+
 // If the rider is this far from the currently plotted route, the route is
 // considered stale (missed turn, took a different road, etc.) and gets
 // recalculated from the rider's current position.
@@ -156,6 +164,17 @@ export function ActiveOrderScreen({ order: initialOrder, onDelivered, onBack }) 
   const handlePosition = useCallback((pos) => {
     const accuracy = pos.coords.accuracy ?? null;
     const next = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+
+    // Reject outright: this isn't "a bit noisy GPS", it's an IP/network
+    // guess that can be off by entire cities. Never plot it, even as a
+    // first-load placeholder — show "waiting for GPS" instead.
+    if (accuracy != null && accuracy > UNUSABLE_ACCURACY_M) {
+      setMapError(
+        `Can't get an accurate location (accuracy ~${Math.round(accuracy / 1000)}km — this looks like a network-based guess, not GPS). ` +
+        `Make sure Location is set to Precise/GPS mode, not battery-saving or Wi-Fi-only, and that you're on a phone rather than a laptop.`
+      );
+      return;
+    }
 
     setPositionAccuracy((prevAccuracy) => {
       const havePosition = prevAccuracy !== null;
