@@ -17,6 +17,7 @@ import {
   Loader2,
   Check,
   Lock,
+  X,
 } from 'lucide-react';
 
 const STEPS = ['Identity', 'Work Details', 'Emergency Contact', 'Almost Done'];
@@ -42,7 +43,7 @@ const slideVariants = {
   exit: (direction) => ({ x: direction > 0 ? -40 : 40, opacity: 0 }),
 };
 
-export function AddRiderScreen({ onBack, onSubmit, mode = 'admin' }) {
+export function AddRiderScreen({ onBack, onSubmit, mode = 'admin', error, onErrorDismiss }) {
   const isApply = mode === 'apply';
 
   const [stepIndex, setStepIndex] = useState(0);
@@ -97,11 +98,13 @@ export function AddRiderScreen({ onBack, onSubmit, mode = 'admin' }) {
 
   function goNext() {
     if (!isStepValid()) return;
+    if (onErrorDismiss) onErrorDismiss();
     setDirection(1);
     setStepIndex((i) => Math.min(i + 1, STEPS.length - 1));
   }
 
   function goBack() {
+    if (onErrorDismiss) onErrorDismiss();
     if (stepIndex === 0) {
       onBack();
       return;
@@ -111,9 +114,12 @@ export function AddRiderScreen({ onBack, onSubmit, mode = 'admin' }) {
   }
 
   async function handleSubmit() {
+    if (onErrorDismiss) onErrorDismiss();
     setSubmitting(true);
     try {
       await onSubmit(form);
+    } catch {
+      // Error surfaces via the `error` prop (inline banner above).
     } finally {
       setSubmitting(false);
     }
@@ -456,6 +462,22 @@ export function AddRiderScreen({ onBack, onSubmit, mode = 'admin' }) {
           </AnimatePresence>
         </div>
       </div>
+
+      {error && (
+        <div className="px-4 pb-2">
+          <div className="max-w-md mx-auto flex items-start justify-between gap-3 bg-red-50 border border-red-200 rounded-2xl px-4 py-3">
+            <p className="text-sm text-red-700 leading-snug">{error}</p>
+            <button
+              type="button"
+              onClick={onErrorDismiss}
+              className="text-red-400 hover:text-red-600 shrink-0 mt-0.5"
+              aria-label="Dismiss error"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="sticky bottom-0 bg-[#fefaf4]/95 backdrop-blur-sm border-t border-gray-200 px-4 pt-4 pb-[calc(env(safe-area-inset-bottom)+16px)] shrink-0">
         <div className="max-w-md mx-auto flex gap-3">

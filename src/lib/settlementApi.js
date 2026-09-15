@@ -34,16 +34,29 @@ export async function fetchTodaySettlementSummary(riderId) {
   };
 }
 
-export async function verifySettlement(reference, riderId) {
+// Both settlement endpoints verify a REAL user JWT (the anon key is rejected
+// with 401). Riders may only create/verify settlements for themselves; admins
+// for anyone. The server derives identity from the token — body rider_id is
+// advisory at best, so we don't rely on it.
+async function getBearer() {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session?.access_token) {
+    throw new Error('Not signed in — please log in again');
+  }
+  return session.access_token;
+}
+
+export async function verifySettlement(reference) {
+  const token = await getBearer();
   const res = await fetch(
     `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/verify-settlement`,
     {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+        Authorization: `Bearer ${token}`,
       },
-      body: JSON.stringify({ reference, rider_id: riderId }),
+      body: JSON.stringify({ reference }),
     }
   );
 
@@ -52,16 +65,17 @@ export async function verifySettlement(reference, riderId) {
   return result;
 }
 
-export async function createSettlementIntent(riderId) {
+export async function createSettlementIntent() {
+  const token = await getBearer();
   const res = await fetch(
     `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create-settlement`,
     {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+        Authorization: `Bearer ${token}`,
       },
-      body: JSON.stringify({ rider_id: riderId }),
+      body: JSON.stringify({}),
     }
   );
 

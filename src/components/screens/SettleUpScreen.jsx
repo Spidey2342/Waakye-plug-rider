@@ -36,7 +36,7 @@ export function SettleUpScreen({ rider, onSettled }) {
     const email = `${rider.profiles?.phone}@riders.waakyeplug.app`;
 
     try {
-      const { reference, amount } = await createSettlementIntent(rider.id);
+      const { reference, amount } = await createSettlementIntent();
 
       await payWithPaystack({
         email,
@@ -44,7 +44,7 @@ export function SettleUpScreen({ rider, onSettled }) {
         reference,
         onSuccess: async (paidReference) => {
           try {
-            await verifySettlement(paidReference, rider.id);
+            await verifySettlement(paidReference);
             onSettled();
           } catch (err) {
             setError(err.message);
