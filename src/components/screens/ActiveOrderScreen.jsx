@@ -119,10 +119,21 @@ export function ActiveOrderScreen({ order: initialOrder, onDelivered, onBack }) 
   }, []);
 
   useEffect(() => {
-    async function geocodeBoth() {
+    async function resolveVendorAndCustomer() {
       try {
+        // Prefer the vendor's real, saved GPS coordinates (set from their
+        // Settings tab) over geocoding the free-text address — geocoding a
+        // short/ambiguous address like "ho" is what previously sent riders
+        // to the wrong country. Only fall back to geocoding when a vendor
+        // hasn't captured precise coordinates yet.
+        const { latitude, longitude } = order.vendors || {};
+        const vendorPromise =
+          latitude != null && longitude != null
+            ? Promise.resolve({ lat: latitude, lng: longitude })
+            : geocodeAddress(order.vendors?.location || '');
+
         const [vendor, customer] = await Promise.all([
-          geocodeAddress(order.vendors?.location || ''),
+          vendorPromise,
           geocodeAddress(order.delivery_address || ''),
         ]);
         if (!vendor || !customer) {
@@ -134,8 +145,8 @@ export function ActiveOrderScreen({ order: initialOrder, onDelivered, onBack }) 
         setMapError('Map service is temporarily unavailable.');
       }
     }
-    geocodeBoth();
-  }, [order.vendors?.location, order.delivery_address]);
+    resolveVendorAndCustomer();
+  }, [order.vendors?.latitude, order.vendors?.longitude, order.vendors?.location, order.delivery_address]);
 
   // Accepts a raw geolocation reading and decides whether it's good enough
   // to trust. A low-accuracy fix (typically a network/IP-based fallback,
