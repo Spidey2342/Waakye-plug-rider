@@ -22,6 +22,7 @@ Deno.serve(async (req) => {
       emergency_contact_name,
       emergency_contact_phone,
       deposit_amount,
+      is_self_apply,
     } = await req.json();
 
     if (!full_name || !phone || !pin || pin.length !== 4) {
@@ -31,14 +32,11 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Service role client — full admin rights, only ever runs server-side.
     const supabaseAdmin = createClient(
       Deno.env.get('SUPABASE_URL')!,
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
     );
 
-    // Riders never see this — they only ever type their phone + 4-digit PIN.
-    // We turn that into a real password Supabase Auth will accept.
     const syntheticEmail = `${phone}@riders.waakyeplug.app`;
     const realPassword = `${pin}${phone.slice(-4)}`;
 
@@ -64,7 +62,6 @@ Deno.serve(async (req) => {
     });
 
     if (profileError) {
-      // Roll back the auth user so we don't leave an orphaned account behind.
       await supabaseAdmin.auth.admin.deleteUser(authUser.user.id);
       return new Response(
         JSON.stringify({ error: profileError.message }),
@@ -72,20 +69,26 @@ Deno.serve(async (req) => {
       );
     }
 
+    // Self-applied accounts are ALWAYS created as unapproved, regardless of
+    // anything the client sends — enforced here, server-side, since anyone
+    // can call this endpoint with the public anon key.
+    const isApproved = is_self_apply === true ? false : true;
+    const finalDeposit = is_self_apply === true ? 0 : (deposit_amount ?? 0);
+
     const { data: rider, error: riderError } = await supabaseAdmin
       .from('riders')
       .insert({
         profile_id: authUser.user.id,
         status: 'pending',
-        is_approved: true,
+        is_approved: isApproved,
         photo_url,
         transport_type,
         ghana_card_number,
         home_area,
         emergency_contact_name,
         emergency_contact_phone,
-        deposit_amount: deposit_amount ?? 0,
-        deposit_collected_at: deposit_amount ? new Date().toISOString() : null,
+        deposit_amount: finalDeposit,
+        deposit_collected_at: finalDeposit ? new Date().toISOString() : null,
       })
       .select()
       .single();
