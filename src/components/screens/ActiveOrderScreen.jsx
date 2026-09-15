@@ -27,6 +27,23 @@ const STAGES = ['Heading to Vendor', 'At Vendor', 'Heading to Customer', 'Delive
 const ARRIVAL_THRESHOLD_M = 100;
 const STEP_THRESHOLD_M = 40;
 
+// A GPS fix worse than this (in meters, from pos.coords.accuracy) is treated
+// as unreliable — this is what a network/Wi-Fi-based fallback location looks
+// like, versus a real GPS fix which is normally well under 100m. We still
+// use a low-accuracy fix if it's the only one we have (better than nothing
+// on first load), but we won't let it override an already-good fix, and we
+// warn the rider instead of silently trusting it.
+const MIN_USABLE_ACCURACY_M = 400;
+
+// If the rider is this far from the currently plotted route, the route is
+// considered stale (missed turn, took a different road, etc.) and gets
+// recalculated from the rider's current position.
+const ROUTE_DEVIATION_THRESHOLD_M = 150;
+
+// Don't hit OSRM more often than this even if the rider is off-route the
+// whole time — avoids hammering the free public routing server.
+const ROUTE_RECALC_COOLDOWN_MS = 20000;
+
 function makeDivIcon(color, pulse = false) {
   return L.divIcon({
     className: '',
@@ -41,6 +58,18 @@ function makeDivIcon(color, pulse = false) {
   });
 }
 
+// Shortest distance from a point to a polyline, in meters — used to detect
+// whether the rider has drifted off the plotted route.
+function distanceToPolylineMeters(point, coordinates) {
+  if (!coordinates || coordinates.length === 0) return Infinity;
+  let min = Infinity;
+  for (const [lat, lng] of coordinates) {
+    const d = distanceMeters(point, { lat, lng });
+    if (d < min) min = d;
+  }
+  return min;
+}
+
 export function ActiveOrderScreen({ order: initialOrder, onDelivered, onBack }) {
   const mapRef = useRef(null);
   const mapContainerRef = useRef(null);
@@ -49,12 +78,15 @@ export function ActiveOrderScreen({ order: initialOrder, onDelivered, onBack }) 
   const vendorMarkerRef = useRef(null);
   const customerMarkerRef = useRef(null);
   const spokenStepIndexRef = useRef(-1);
+  const lastRouteFetchAtRef = useRef(0);
 
   const [order, setOrder] = useState(initialOrder);
   const [vendorCoords, setVendorCoords] = useState(null);
   const [customerCoords, setCustomerCoords] = useState(null);
   const [riderPosition, setRiderPosition] = useState(null);
+  const [positionAccuracy, setPositionAccuracy] = useState(null);
   const [route, setRoute] = useState(null);
+  const [routeRefetchTick, setRouteRefetchTick] = useState(0);
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
   const [isAtVendor, setIsAtVendor] = useState(false);
   const [loadingRoute, setLoadingRoute] = useState(true);
@@ -105,22 +137,54 @@ export function ActiveOrderScreen({ order: initialOrder, onDelivered, onBack }) 
     geocodeBoth();
   }, [order.vendors?.location, order.delivery_address]);
 
+  // Accepts a raw geolocation reading and decides whether it's good enough
+  // to trust. A low-accuracy fix (typically a network/IP-based fallback,
+  // not real GPS) is only used if we don't have anything better yet; once
+  // we have a decent fix, we ignore worse ones instead of jumping the
+  // rider's marker onto a bad guess.
+  const handlePosition = useCallback((pos) => {
+    const accuracy = pos.coords.accuracy ?? null;
+    const next = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+
+    setPositionAccuracy((prevAccuracy) => {
+      const havePosition = prevAccuracy !== null;
+      const isLowAccuracy = accuracy != null && accuracy > MIN_USABLE_ACCURACY_M;
+
+      if (isLowAccuracy && havePosition && prevAccuracy <= MIN_USABLE_ACCURACY_M) {
+        // We already have a trustworthy fix — don't let a worse one replace it.
+        setMapError(`Location signal is weak (±${Math.round(accuracy)}m) — using your last good position.`);
+        return prevAccuracy;
+      }
+
+      setRiderPosition(next);
+      if (isLowAccuracy) {
+        setMapError(`Location is approximate (±${Math.round(accuracy)}m). Move to open sky or enable precise/GPS location for accurate directions.`);
+      } else if (accuracy != null) {
+        // Good fix — clear any stale low-accuracy warning.
+        setMapError((prevError) =>
+          prevError && prevError.startsWith('Location') ? null : prevError
+        );
+      }
+      return accuracy;
+    });
+  }, []);
+
   useEffect(() => {
     if (!('geolocation' in navigator)) return;
 
     navigator.geolocation.getCurrentPosition(
-      (pos) => setRiderPosition({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      handlePosition,
       () => {},
       { enableHighAccuracy: false, timeout: 8000, maximumAge: 60000 }
     );
 
     const watchId = navigator.geolocation.watchPosition(
-      (pos) => setRiderPosition({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      handlePosition,
       () => setMapError('Location access is off — turn it on to see your live position and get directions.'),
       { enableHighAccuracy: true, maximumAge: 5000 }
     );
     return () => navigator.geolocation.clearWatch(watchId);
-  }, []);
+  }, [handlePosition]);
 
   const hasPosition = Boolean(riderPosition);
   useEffect(() => {
@@ -135,6 +199,7 @@ export function ActiveOrderScreen({ order: initialOrder, onDelivered, onBack }) 
           setRoute(r);
           spokenStepIndexRef.current = -1;
           setCurrentStepIndex(0);
+          lastRouteFetchAtRef.current = Date.now();
         }
       } catch {
         if (!cancelled) setMapError('Could not calculate a route right now.');
@@ -145,7 +210,23 @@ export function ActiveOrderScreen({ order: initialOrder, onDelivered, onBack }) 
     fetchRoute();
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [target?.lat, target?.lng, order.status, hasPosition]);
+  }, [target?.lat, target?.lng, order.status, hasPosition, routeRefetchTick]);
+
+  // Watches for the rider drifting away from the plotted route (missed
+  // turn, different road, etc.) and triggers a fresh route calculation,
+  // throttled so we don't spam OSRM on every GPS tick.
+  useEffect(() => {
+    if (!riderPosition || !route?.coordinates?.length) return;
+
+    const deviation = distanceToPolylineMeters(riderPosition, route.coordinates);
+    if (deviation <= ROUTE_DEVIATION_THRESHOLD_M) return;
+
+    const now = Date.now();
+    if (now - lastRouteFetchAtRef.current < ROUTE_RECALC_COOLDOWN_MS) return;
+
+    lastRouteFetchAtRef.current = now;
+    setRouteRefetchTick((t) => t + 1);
+  }, [riderPosition, route]);
 
   useEffect(() => {
     const map = mapRef.current;

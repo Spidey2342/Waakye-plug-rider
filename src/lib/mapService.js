@@ -2,6 +2,12 @@ const OSRM_BASE = 'https://router.project-osrm.org/route/v1/driving';
 const NOMINATIM_BASE = 'https://nominatim.openstreetmap.org/search';
 const GEOCODE_CACHE_KEY = 'waakye_geocode_cache_v1';
 
+// Roughly covers Ghana (west, south, east, north). Used both as a country
+// filter and a bounding box so a bare address like "ho" or "tema" matches
+// the Ghanaian town instead of a same-named place somewhere else in the
+// world (this previously sent riders to "Ho, France" and similar).
+const GHANA_VIEWBOX = '-3.262,4.5,1.199,11.173';
+
 function readCache() {
   try {
     return JSON.parse(localStorage.getItem(GEOCODE_CACHE_KEY) || '{}');
@@ -23,6 +29,10 @@ function writeCache(cache) {
 // coordinates, using OpenStreetMap's free Nominatim service. No API key.
 // A vendor's address never changes between orders, so once we've looked
 // it up we never hit the network for that exact string again.
+//
+// Results are restricted to Ghana (countrycodes=gh + a Ghana viewbox with
+// bounded=1) so short/ambiguous addresses like "ho" or "tema" resolve to
+// the Ghanaian town instead of a same-named place on another continent.
 export async function geocodeAddress(address) {
   const key = address.trim().toLowerCase();
   if (!key) return null;
@@ -30,7 +40,9 @@ export async function geocodeAddress(address) {
   const cache = readCache();
   if (cache[key]) return cache[key];
 
-  const url = `${NOMINATIM_BASE}?format=json&q=${encodeURIComponent(address)}&limit=1`;
+  const url =
+    `${NOMINATIM_BASE}?format=json&q=${encodeURIComponent(address)}` +
+    `&limit=1&countrycodes=gh&viewbox=${GHANA_VIEWBOX}&bounded=1`;
   const res = await fetch(url, { headers: { 'Accept-Language': 'en' } });
   const data = await res.json();
   if (!data || data.length === 0) return null;
