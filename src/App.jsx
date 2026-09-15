@@ -11,6 +11,7 @@ import { ForgotPinScreen } from './components/screens/ForgotPinScreen';
 import { shouldLockForSettlement } from './lib/settlementLock';
 import { fetchCommissionOwed } from './lib/earningsApi';
 import { getCurrentRider } from './lib/riderAuth';
+import { fetchActiveOrderForRider } from './lib/ordersApi';
 
 function PlaceholderScreen({ title, onBack }) {
   return (
@@ -31,7 +32,6 @@ function App() {
   const [activeOrder, setActiveOrder] = useState(null);
   const [isLocked, setIsLocked] = useState(false);
   const [restoringSession, setRestoringSession] = useState(true);
-  const [submitError, setSubmitError] = useState(null);
 
   async function checkSettlementLock(rider) {
     try {
@@ -45,15 +45,38 @@ function App() {
     }
   }
 
+  // Puts the rider wherever they should actually be after logging in or
+  // restoring a session: back into ActiveOrderScreen if they already have
+  // an order in progress (rider_assigned/picked_up), otherwise Home. This
+  // is what stops a page refresh mid-delivery from bouncing a rider back
+  // to "Available Orders" while the DB still has them tied to their old
+  // order — which previously surfaced as a raw
+  // "duplicate key value violates unique constraint riders_one_active_order"
+  // error the moment they tried to accept a new one.
+  async function routeRiderToCurrentScreen(rider) {
+    setLoggedInRider(rider);
+    try {
+      const inProgressOrder = await fetchActiveOrderForRider(rider.id);
+      if (inProgressOrder) {
+        setActiveOrder(inProgressOrder);
+        setScreen('activeOrder');
+        return;
+      }
+    } catch {
+      // If we can't tell whether an order is in progress, fail toward the
+      // Home screen rather than blocking the rider from logging in at all.
+    }
+    setScreen('home');
+    await checkSettlementLock(rider);
+  }
+
   // On every fresh page load, check whether a session already exists
   // before defaulting to the Login screen.
   useEffect(() => {
     (async () => {
       const rider = await getCurrentRider();
       if (rider) {
-        setLoggedInRider(rider);
-        setScreen('home');
-        await checkSettlementLock(rider);
+        await routeRiderToCurrentScreen(rider);
       }
       setRestoringSession(false);
     })();
@@ -86,12 +109,11 @@ function App() {
     const result = await res.json();
 
     if (!res.ok) {
-      const message = result.error || 'Unknown error';
-      setSubmitError(`Failed to add rider: ${message}`);
-      throw new Error(message);
+      alert(`Failed to add rider: ${result.error || 'Unknown error'}`);
+      throw new Error(result.error || 'Failed to add rider');
     }
 
-    setSuccessMessage(`${formData.full_name} was added. They can log in as soon as an admin approves the account.`);
+    setSuccessMessage(`${formData.full_name} was added successfully.`);
     setScreen('success');
   }
 
@@ -122,9 +144,8 @@ function App() {
     const result = await res.json();
 
     if (!res.ok) {
-      const message = result.error || 'Unknown error';
-      setSubmitError(`Could not submit application: ${message}`);
-      throw new Error(message);
+      alert(`Could not submit application: ${result.error || 'Unknown error'}`);
+      throw new Error(result.error || 'Could not submit application');
     }
 
     setSuccessMessage(`Thanks, ${formData.full_name}! We'll review your application and reach out soon.`);
@@ -165,11 +186,11 @@ function App() {
   }
 
   if (screen === 'addRider') {
-    return <AddRiderScreen onBack={() => setScreen('login')} onSubmit={handleAddRider} error={submitError} onErrorDismiss={() => setSubmitError(null)} />;
+    return <AddRiderScreen onBack={() => setScreen('login')} onSubmit={handleAddRider} />;
   }
 
   if (screen === 'apply') {
-    return <AddRiderScreen mode="apply" onBack={() => setScreen('login')} onSubmit={handleApply} error={submitError} onErrorDismiss={() => setSubmitError(null)} />;
+    return <AddRiderScreen mode="apply" onBack={() => setScreen('login')} onSubmit={handleApply} />;
   }
 
   if (screen === 'home') {
@@ -248,11 +269,7 @@ function App() {
 
   return (
     <LoginScreen
-      onSuccess={async (rider) => {
-        setLoggedInRider(rider);
-        setScreen('home');
-        await checkSettlementLock(rider);
-      }}
+      onSuccess={routeRiderToCurrentScreen}
       onForgotPin={() => setScreen('forgotPin')}
       onApply={() => setScreen('apply')}
     />
