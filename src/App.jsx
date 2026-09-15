@@ -31,6 +31,7 @@ function App() {
   const [activeOrder, setActiveOrder] = useState(null);
   const [isLocked, setIsLocked] = useState(false);
   const [restoringSession, setRestoringSession] = useState(true);
+  const [submitError, setSubmitError] = useState(null);
 
   async function checkSettlementLock(rider) {
     try {
@@ -85,11 +86,12 @@ function App() {
     const result = await res.json();
 
     if (!res.ok) {
-      alert(`Failed to add rider: ${result.error || 'Unknown error'}`);
-      throw new Error(result.error || 'Failed to add rider');
+      const message = result.error || 'Unknown error';
+      setSubmitError(`Failed to add rider: ${message}`);
+      throw new Error(message);
     }
 
-    setSuccessMessage(`${formData.full_name} was added successfully.`);
+    setSuccessMessage(`${formData.full_name} was added. They can log in as soon as an admin approves the account.`);
     setScreen('success');
   }
 
@@ -120,8 +122,9 @@ function App() {
     const result = await res.json();
 
     if (!res.ok) {
-      alert(`Could not submit application: ${result.error || 'Unknown error'}`);
-      throw new Error(result.error || 'Could not submit application');
+      const message = result.error || 'Unknown error';
+      setSubmitError(`Could not submit application: ${message}`);
+      throw new Error(message);
     }
 
     setSuccessMessage(`Thanks, ${formData.full_name}! We'll review your application and reach out soon.`);
@@ -162,11 +165,11 @@ function App() {
   }
 
   if (screen === 'addRider') {
-    return <AddRiderScreen onBack={() => setScreen('login')} onSubmit={handleAddRider} />;
+    return <AddRiderScreen onBack={() => setScreen('login')} onSubmit={handleAddRider} error={submitError} onErrorDismiss={() => setSubmitError(null)} />;
   }
 
   if (screen === 'apply') {
-    return <AddRiderScreen mode="apply" onBack={() => setScreen('login')} onSubmit={handleApply} />;
+    return <AddRiderScreen mode="apply" onBack={() => setScreen('login')} onSubmit={handleApply} error={submitError} onErrorDismiss={() => setSubmitError(null)} />;
   }
 
   if (screen === 'home') {

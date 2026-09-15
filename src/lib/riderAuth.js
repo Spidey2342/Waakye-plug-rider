@@ -1,26 +1,36 @@
 import { supabase } from './supabase';
 
+// PIN verification now happens inside the `rider-login` edge function with
+// DB-backed rate limiting (5 wrong tries per phone / 15 min, plus an IP cap)
+// — the raw 4-digit PIN space is no longer guessable with the public anon
+// key (audit S1). This client just relays phone + PIN and restores the
+// session the server hands back.
 export async function riderLogin(phone, pin) {
-  const syntheticEmail = `${phone}@riders.waakyeplug.app`;
-  const realPassword = `${pin}${phone.slice(-4)}`;
+  const res = await fetch(
+    `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/rider-login`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+      },
+      body: JSON.stringify({ phone, pin }),
+    }
+  );
 
-  const { data, error } = await supabase.auth.signInWithPassword({
-    email: syntheticEmail,
-    password: realPassword,
+  const result = await res.json();
+
+  if (!res.ok) throw new Error(result.error || 'Incorrect phone number or PIN');
+
+  // Restore the server-created session so supabase-js (realtime, RLS-scoped
+  // queries, storage) behaves exactly as it did with a client-side login.
+  const { error: sessionError } = await supabase.auth.setSession({
+    access_token: result.session.access_token,
+    refresh_token: result.session.refresh_token,
   });
+  if (sessionError) throw new Error('Logged in, but the session could not be restored. Try again.');
 
-  if (error) throw new Error('Incorrect phone number or PIN');
-
-  const { data: rider, error: riderError } = await supabase
-    .from('riders')
-    .select('*, profiles(full_name, phone)')
-    .eq('profile_id', data.user.id)
-    .single();
-
-  if (riderError || !rider) throw new Error('No rider profile found for this account');
-  if (!rider.is_approved) throw new Error('Your account is pending approval');
-
-  return rider;
+  return result.rider;
 }
 
 // Checks whether a Supabase session already exists (e.g. after a page

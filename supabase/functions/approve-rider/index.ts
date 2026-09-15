@@ -42,17 +42,17 @@ async function requireAdmin(
   return { ok: true, adminId: data.user.id };
 }
 
+// Approves a pending rider application. This replaces the old direct
+// `update is_approved = true` write from the admin panel — that write went
+// through the public anon key, so once RLS is locked down it would fail, and
+// before RLS is locked down anyone could self-approve. Going through this
+// admin-verified function fixes both problems.
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
   }
 
   try {
-    // SECURITY: this function deletes a rider row, their profile, AND their auth
-    // account with the service-role key. It must never run for an anonymous or
-    // non-admin caller — previously anyone with the public anon key could wipe
-    // any rider. The admin dashboard already sends the signed-in admin's access
-    // token, which is verified here.
     const supabaseAdmin = createClient(
       Deno.env.get('SUPABASE_URL')!,
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
@@ -66,40 +66,18 @@ Deno.serve(async (req) => {
       return jsonResponse(400, { error: 'rider_id is required' });
     }
 
-    const { data: rider, error: riderFetchError } = await supabaseAdmin
+    const { data: rider, error: riderError } = await supabaseAdmin
       .from('riders')
-      .select('profile_id, commission_owed')
+      .update({ is_approved: true, status: 'approved' })
       .eq('id', rider_id)
+      .select()
       .single();
 
-    if (riderFetchError || !rider) {
+    if (riderError || !rider) {
       return jsonResponse(404, { error: 'Rider application not found' });
     }
 
-    // V4: never destroy a rider's record while the platform still owes
-    // money on them — commission_owed is deleted along with the row, and
-    // orders.rider_id would dangle. Admin must settle (zero it out via the
-    // settlements flow) before removal. Pending applicants always carry 0,
-    // so declining applications is unaffected.
-    if (Number(rider.commission_owed) > 0) {
-      return jsonResponse(409, {
-        error: `Cannot remove this rider: GHS ${Number(rider.commission_owed).toFixed(2)} commission is still owed. Settle the balance first, then remove them.`,
-        commission_owed: Number(rider.commission_owed),
-      });
-    }
-
-    await supabaseAdmin.from('riders').delete().eq('id', rider_id);
-    await supabaseAdmin.from('profiles').delete().eq('id', rider.profile_id);
-
-    const { error: authDeleteError } = await supabaseAdmin.auth.admin.deleteUser(rider.profile_id);
-
-    if (authDeleteError) {
-      return jsonResponse(500, {
-        error: `Application removed, but the login account could not be deleted: ${authDeleteError.message}`,
-      });
-    }
-
-    return jsonResponse(200, { success: true });
+    return jsonResponse(200, { success: true, rider });
   } catch (err) {
     return jsonResponse(500, {
       error: err instanceof Error ? err.message : 'Unknown error',
