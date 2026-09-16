@@ -61,7 +61,6 @@ Deno.serve(async (req) => {
       emergency_contact_name,
       emergency_contact_phone,
       deposit_amount,
-      is_self_apply,
     } = await req.json();
 
     if (!full_name || !phone || !pin || pin.length !== 4 || !/^\d{4}$/.test(pin)) {
@@ -75,10 +74,6 @@ Deno.serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
     );
 
-<<<<<<< HEAD
-    const syntheticEmail = `${phone}@riders.waakyeplug.app`;
-    const realPassword = `${pin}${phone.slice(-4)}`;
-=======
     // SECURITY MODEL:
     //  - Caller with a valid ADMIN JWT  -> rider is created approved (in-person onboarding).
     //  - Anyone else (public self-apply) -> rider is created PENDING. The auth account
@@ -91,7 +86,6 @@ Deno.serve(async (req) => {
     // We turn that into a real password Supabase Auth will accept.
     const syntheticEmail = `${phone.trim()}@riders.waakyeplug.app`;
     const realPassword = `${pin}${phone.trim().slice(-4)}`;
->>>>>>> 84cdf7b49da1a074d1b95ea46f8b1bb35bdbd21b
 
     const { data: authUser, error: authError } = await supabaseAdmin.auth.admin.createUser({
       email: syntheticEmail,
@@ -116,36 +110,21 @@ Deno.serve(async (req) => {
       return jsonResponse(400, { error: profileError.message });
     }
 
-    // Self-applied accounts are ALWAYS created as unapproved, regardless of
-    // anything the client sends — enforced here, server-side, since anyone
-    // can call this endpoint with the public anon key.
-    const isApproved = is_self_apply === true ? false : true;
-    const finalDeposit = is_self_apply === true ? 0 : (deposit_amount ?? 0);
-
     const { data: rider, error: riderError } = await supabaseAdmin
       .from('riders')
       .insert({
         profile_id: authUser.user.id,
-<<<<<<< HEAD
-        status: 'pending',
-        is_approved: isApproved,
-=======
         status: isApprovedByAdmin ? 'approved' : 'pending',
         is_approved: isApprovedByAdmin,
->>>>>>> 84cdf7b49da1a074d1b95ea46f8b1bb35bdbd21b
         photo_url,
         transport_type,
         ghana_card_number,
         home_area,
         emergency_contact_name,
         emergency_contact_phone,
-<<<<<<< HEAD
-        deposit_amount: finalDeposit,
-        deposit_collected_at: finalDeposit ? new Date().toISOString() : null,
-=======
         deposit_amount: deposit_amount ?? 0,
-        deposit_collected_at: isApprovedByAdmin && deposit_amount ? new Date().toISOString() : null,
->>>>>>> 84cdf7b49da1a074d1b95ea46f8b1bb35bdbd21b
+        deposit_collected_at:
+          isApprovedByAdmin && deposit_amount ? new Date().toISOString() : null,
       })
       .select()
       .single();

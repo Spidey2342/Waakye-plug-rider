@@ -179,3 +179,7 @@ S3 line above still read "deployment pending" — stale. add-rider/decline-rider
 **Fix 2 — settlement lock timezone:** `shouldLockForSettlement` uses **Africa/Accra** noon (via `Intl` + UTC noon on Accra calendar day; Accra is UTC+0 year-round). `App.jsx` still fails open on first-fetch network errors, but **fails closed** when a prior successful fetch in the session showed `commission_owed > 0`.
 
 **S4 note:** Canonical order statuses already agree across apps (`available → rider_assigned → picked_up → delivered` + `cancelled`). Remaining rider-side gap was accept without a status guard — closed above. Self-apply remains **pending until admin approve** (not auto-approve).
+
+### 2026-09-16 — add-rider conflict markers resolved
+- Cleared unresolved `<<<<<<<` / `=======` / `>>>>>>>` markers in `supabase/functions/add-rider/index.ts`.
+- Kept admin-JWT → approved, anon/self-apply → pending security model.
