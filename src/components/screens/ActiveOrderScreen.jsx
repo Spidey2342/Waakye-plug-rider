@@ -134,21 +134,45 @@ export function ActiveOrderScreen({ order: initialOrder, onDelivered, onBack }) 
         // short/ambiguous address like "ho" is what previously sent riders
         // to the wrong country. Only fall back to geocoding when a vendor
         // hasn't captured precise coordinates yet.
-        const { latitude, longitude } = order.vendors || {};
-        const vendorPromise =
-          latitude != null && longitude != null
-            ? Promise.resolve({ lat: latitude, lng: longitude })
-            : geocodeAddress(order.vendors?.location || '');
+        const { latitude, longitude, location: vendorLocation } = order.vendors || {};
+        const hasSavedVendorCoords = latitude != null && longitude != null;
+        const bias = (vendorLocation || '').trim() || undefined;
 
-        const [vendor, customer] = await Promise.all([
-          vendorPromise,
-          geocodeAddress(order.delivery_address || ''),
-        ]);
-        if (!vendor || !customer) {
-          setMapError('Could not locate one of the addresses on the map. You can still navigate manually.');
-        }
+        const vendorPromise = hasSavedVendorCoords
+          ? Promise.resolve({ lat: latitude, lng: longitude })
+          : geocodeAddress(vendorLocation || '');
+
+        // Bias customer geocoding with the vendor's home-area string so short
+        // delivery addresses ("Labone", "East Legon") resolve near the shop.
+        const customerPromise = geocodeAddress(order.delivery_address || '', {
+          bias,
+        });
+
+        const [vendor, customer] = await Promise.all([vendorPromise, customerPromise]);
+
+        // Always apply whatever resolved so a partial success still pans the
+        // map off Accra (e.g. vendor pin known, customer address failed).
         setVendorCoords(vendor);
         setCustomerCoords(customer);
+
+        if (!vendor && !customer) {
+          setMapError(
+            'Could not locate the vendor or the delivery address on the map. You can still navigate manually.'
+          );
+        } else if (!vendor) {
+          setMapError(
+            'Could not locate the vendor on the map. Check the shop address or ask the vendor to save GPS coordinates.'
+          );
+        } else if (!customer) {
+          setMapError(
+            'Could not locate the delivery address on the map. Vendor pin is shown — navigate to the customer manually if needed.'
+          );
+        } else {
+          // Clear a prior address-locate error once both pins resolve.
+          setMapError((prev) =>
+            prev && prev.startsWith('Could not locate') ? null : prev
+          );
+        }
       } catch {
         setMapError('Map service is temporarily unavailable.');
       }
@@ -278,6 +302,18 @@ export function ActiveOrderScreen({ order: initialOrder, onDelivered, onBack }) 
       if (routeLayerRef.current) map.removeLayer(routeLayerRef.current);
       routeLayerRef.current = L.polyline(route.coordinates, { color: '#7a1d1d', weight: 5 }).addTo(map);
       map.fitBounds(routeLayerRef.current.getBounds(), { padding: [40, 40] });
+    } else {
+      // No route yet — still leave Accra default and show whatever pins we have
+      // (vendor saved coords alone used to leave the map stuck on Accra).
+      const points = [];
+      if (vendorCoords) points.push([vendorCoords.lat, vendorCoords.lng]);
+      if (customerCoords) points.push([customerCoords.lat, customerCoords.lng]);
+      if (riderPosition) points.push([riderPosition.lat, riderPosition.lng]);
+      if (points.length >= 2) {
+        map.fitBounds(L.latLngBounds(points), { padding: [40, 40], maxZoom: 15 });
+      } else if (points.length === 1) {
+        map.setView(points[0], 14);
+      }
     }
   }, [vendorCoords, customerCoords, riderPosition, route]);
 

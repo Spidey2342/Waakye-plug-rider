@@ -183,3 +183,10 @@ S3 line above still read "deployment pending" — stale. add-rider/decline-rider
 ### 2026-09-16 — add-rider conflict markers resolved
 - Cleared unresolved `<<<<<<<` / `=======` / `>>>>>>>` markers in `supabase/functions/add-rider/index.ts`.
 - Kept admin-JWT → approved, anon/self-apply → pending security model.
+
+### 2026-09-16 — Map geocoding hardened (Ghana Nominatim + pin-first pan) ✅
+**Symptom (live WP-E7B5 / Morrison voice note):** Active order map stayed Accra-centered with "Could not locate one of the addresses" even when vendor lat/lng existed.
+**Root causes:** Nominatim calls had no identifying `User-Agent` (policy → empty/blocked results); geocode cache permanently stored misses; customer geocode had no locality bias; markers effect only `fitBounds` after a route — pins alone never left Accra.
+**Fix:**
+- `mapService.js` `geocodeAddress(address, opts?)`: User-Agent `WaakyePlugRider`; query ladder raw → +bias → +Ghana, each with `bounded=1` then `countrycodes=gh` without bounded; positive cache v2; negative cache ~15 min TTL.
+- `ActiveOrderScreen.jsx`: bias customer geocode with `vendor.location`; specific vendor/delivery/both error copy; always `setVendorCoords` on partial success; markers effect `fitBounds`/`setView` on vendor/customer/rider pins when no route yet.
