@@ -16,7 +16,7 @@ import {
   Check,
 } from 'lucide-react';
 import { markPickedUp, markDelivered } from '../../lib/ordersApi';
-import { geocodeAddress, getRoute, distanceMeters, speak } from '../../lib/mapService';
+import { geocodeAddress, getRoute, distanceMeters, speak, parseLatLng } from '../../lib/mapService';
 import { reportIssue } from '../../lib/issuesApi';
 
 // TODO: replace with your real WhatsApp number (country code, no + or spaces)
@@ -42,6 +42,11 @@ const MIN_USABLE_ACCURACY_M = 400;
 // Better to show "waiting for GPS" than to plot the rider hundreds of
 // kilometers from where they actually are.
 const UNUSABLE_ACCURACY_M = 3000;
+
+// Default map center when no vendor/delivery pin is known yet. NEVER Accra —
+// production riders operate in Ho / Volta. Prefer vendor coords on mount when
+// already present on the order object (see map init below).
+const HO_DEFAULT = { lat: 6.6008, lng: 0.4713 };
 
 // If the rider is this far from the currently plotted route, the route is
 // considered stale (missed turn, took a different road, etc.) and gets
@@ -113,7 +118,10 @@ export function ActiveOrderScreen({ order: initialOrder, onDelivered, onBack }) 
     style.textContent = `@keyframes pulseDot { 0%,100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.6); opacity: 0.6; } }`;
     document.head.appendChild(style);
 
-    const map = L.map(mapContainerRef.current, { zoomControl: false }).setView([5.6037, -0.1870], 13);
+    // Initial center: vendor GPS if already on the order, else Ho — never Accra.
+    const vendorStart = parseLatLng(initialOrder?.vendors?.latitude, initialOrder?.vendors?.longitude);
+    const start = vendorStart || HO_DEFAULT;
+    const map = L.map(mapContainerRef.current, { zoomControl: false }).setView([start.lat, start.lng], 13);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution: '&copy; OpenStreetMap contributors',
       maxZoom: 19,
@@ -129,29 +137,29 @@ export function ActiveOrderScreen({ order: initialOrder, onDelivered, onBack }) 
   useEffect(() => {
     async function resolveVendorAndCustomer() {
       try {
-        // Prefer the vendor's real, saved GPS coordinates (set from their
-        // Settings tab) over geocoding the free-text address — geocoding a
-        // short/ambiguous address like "ho" is what previously sent riders
-        // to the wrong country. Only fall back to geocoding when a vendor
-        // hasn't captured precise coordinates yet.
+        // Uber-style: saved GPS columns first; Nominatim only when coords are
+        // missing (old orders / vendors who never saved a pin). Never geocode
+        // first — that previously sent riders to wrong cities/countries.
         const { latitude, longitude, location: vendorLocation } = order.vendors || {};
-        const hasSavedVendorCoords = latitude != null && longitude != null;
         const bias = (vendorLocation || '').trim() || undefined;
 
-        const vendorPromise = hasSavedVendorCoords
-          ? Promise.resolve({ lat: latitude, lng: longitude })
+        const savedVendor = parseLatLng(latitude, longitude);
+        const vendorPromise = savedVendor
+          ? Promise.resolve(savedVendor)
           : geocodeAddress(vendorLocation || '');
 
-        // Bias customer geocoding with the vendor's home-area string so short
-        // delivery addresses ("Labone", "East Legon") resolve near the shop.
-        const customerPromise = geocodeAddress(order.delivery_address || '', {
-          bias,
-        });
+        // Customer pin: prefer delivery_lat/lng from the customer app. If the
+        // columns are absent (undefined) or non-finite, fall back to geocoding
+        // delivery_address with a vendor-locality bias for short addresses.
+        const savedDelivery = parseLatLng(order.delivery_lat, order.delivery_lng);
+        const customerPromise = savedDelivery
+          ? Promise.resolve(savedDelivery)
+          : geocodeAddress(order.delivery_address || '', { bias });
 
         const [vendor, customer] = await Promise.all([vendorPromise, customerPromise]);
 
         // Always apply whatever resolved so a partial success still pans the
-        // map off Accra (e.g. vendor pin known, customer address failed).
+        // map (fitBounds/setView in the markers effect).
         setVendorCoords(vendor);
         setCustomerCoords(customer);
 
@@ -178,7 +186,14 @@ export function ActiveOrderScreen({ order: initialOrder, onDelivered, onBack }) 
       }
     }
     resolveVendorAndCustomer();
-  }, [order.vendors?.latitude, order.vendors?.longitude, order.vendors?.location, order.delivery_address]);
+  }, [
+    order.vendors?.latitude,
+    order.vendors?.longitude,
+    order.vendors?.location,
+    order.delivery_address,
+    order.delivery_lat,
+    order.delivery_lng,
+  ]);
 
   // Accepts a raw geolocation reading and decides whether it's good enough
   // to trust. A low-accuracy fix (typically a network/IP-based fallback,
@@ -193,9 +208,11 @@ export function ActiveOrderScreen({ order: initialOrder, onDelivered, onBack }) 
     // guess that can be off by entire cities. Never plot it, even as a
     // first-load placeholder — show "waiting for GPS" instead.
     if (accuracy != null && accuracy > UNUSABLE_ACCURACY_M) {
+      // Do not plot the rider marker — a multi-km network guess can place
+      // them in another city (e.g. Accra while they are in Ho).
       setMapError(
-        `Can't get an accurate location (accuracy ~${Math.round(accuracy / 1000)}km — this looks like a network-based guess, not GPS). ` +
-        `Make sure Location is set to Precise/GPS mode, not battery-saving or Wi-Fi-only, and that you're on a phone rather than a laptop.`
+        `Waiting for GPS — current reading is ~${Math.round(accuracy / 1000)}km off (network/Wi-Fi guess, not real GPS). ` +
+        `Your marker stays hidden until Precise/GPS location locks in. Enable Precise Location, go outdoors, and use a phone (not a laptop).`
       );
       return;
     }
@@ -214,9 +231,12 @@ export function ActiveOrderScreen({ order: initialOrder, onDelivered, onBack }) 
       if (isLowAccuracy) {
         setMapError(`Location is approximate (±${Math.round(accuracy)}m). Move to open sky or enable precise/GPS location for accurate directions.`);
       } else if (accuracy != null) {
-        // Good fix — clear any stale low-accuracy warning.
+        // Good fix — clear stale low-accuracy / waiting-for-GPS warnings.
         setMapError((prevError) =>
-          prevError && prevError.startsWith('Location') ? null : prevError
+          prevError &&
+          (prevError.startsWith('Location') || prevError.startsWith('Waiting for GPS'))
+            ? null
+            : prevError
         );
       }
       return accuracy;
@@ -303,8 +323,8 @@ export function ActiveOrderScreen({ order: initialOrder, onDelivered, onBack }) 
       routeLayerRef.current = L.polyline(route.coordinates, { color: '#7a1d1d', weight: 5 }).addTo(map);
       map.fitBounds(routeLayerRef.current.getBounds(), { padding: [40, 40] });
     } else {
-      // No route yet — still leave Accra default and show whatever pins we have
-      // (vendor saved coords alone used to leave the map stuck on Accra).
+      // No route yet — fitBounds/setView to whatever pins we have so the map
+      // leaves the Ho default as soon as vendor and/or delivery coords resolve.
       const points = [];
       if (vendorCoords) points.push([vendorCoords.lat, vendorCoords.lng]);
       if (customerCoords) points.push([customerCoords.lat, customerCoords.lng]);

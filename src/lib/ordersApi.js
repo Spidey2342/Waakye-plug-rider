@@ -1,5 +1,12 @@
 import { supabase } from './supabase';
 
+// Order selects use `*` so delivery_lat / delivery_lng (customer pin coords
+// written by the customer app at checkout) are included once those columns
+// exist in production. Older orders without them leave the fields undefined
+// — ActiveOrderScreen falls back to Nominatim geocode of delivery_address.
+// Do not list delivery_lat/lng explicitly: missing columns would break the
+// whole select before the customer-app migration lands.
+
 // Vendor fields every order query needs: latitude/longitude are the real
 // GPS coordinates a vendor can set from their Settings tab ("Use My
 // Current Location"). When present, the rider app should use them
