@@ -36,6 +36,11 @@ export function todaysAccraCutoff(now = new Date()) {
   return new Date(Date.UTC(year, month - 1, day, CUTOFF_HOUR, 0, 0, 0));
 }
 
+/** Whether the current instant is at or after today's Accra noon cutoff. */
+export function isPastAccraCutoff(now = new Date()) {
+  return accraParts(now).hour >= CUTOFF_HOUR;
+}
+
 /**
  * Lock the rider to Settle Up after Accra noon when they still owe
  * commission and have not settled since today's Accra cutoff.
@@ -43,7 +48,7 @@ export function todaysAccraCutoff(now = new Date()) {
 export function shouldLockForSettlement(commissionOwed, lastSettledAt, now = new Date()) {
   if (!commissionOwed || commissionOwed <= 0) return false;
 
-  if (accraParts(now).hour < CUTOFF_HOUR) return false;
+  if (!isPastAccraCutoff(now)) return false;
 
   const cutoff = todaysAccraCutoff(now);
 

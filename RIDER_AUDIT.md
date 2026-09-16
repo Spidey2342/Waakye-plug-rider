@@ -190,3 +190,6 @@ S3 line above still read "deployment pending" — stale. add-rider/decline-rider
 **Fix:**
 - `mapService.js` `geocodeAddress(address, opts?)`: User-Agent `WaakyePlugRider`; query ladder raw → +bias → +Ghana, each with `bounded=1` then `countrycodes=gh` without bounded; positive cache v2; negative cache ~15 min TTL.
 - `ActiveOrderScreen.jsx`: bias customer geocode with `vendor.location`; specific vendor/delivery/both error copy; always `setVendorCoords` on partial success; markers effect `fitBounds`/`setView` on vendor/customer/rider pins when no route yet.
+
+### 2026-09-16 — Settlement lock fail-closed on post-noon fetch errors ✅
+- After Accra noon, any commission fetch failure now locks the rider to Settle Up, including when no snapshot exists or the last snapshot said `commission_owed === 0`; before noon, a known snapshot is used and no snapshot still fails open.
