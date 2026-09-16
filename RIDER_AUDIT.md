@@ -193,3 +193,9 @@ S3 line above still read "deployment pending" — stale. add-rider/decline-rider
 
 ### 2026-09-16 — Settlement lock fail-closed on post-noon fetch errors ✅
 - After Accra noon, any commission fetch failure now locks the rider to Settle Up, including when no snapshot exists or the last snapshot said `commission_owed === 0`; before noon, a known snapshot is used and no snapshot still fails open.
+
+### 2026-09-16 — Production coords-first nav (delivery_lat/lng + Ho default) ✅
+- **Uber-style pins:** customer pin prefers `order.delivery_lat`/`delivery_lng` when both finite; vendor pin still prefers `vendors.latitude`/`longitude`. Nominatim `geocodeAddress` is fallback only (old orders / missing columns).
+- **Accra default removed:** map mounts on Ho `(6.6008, 0.4713)` or vendor coords already on the order; markers effect `fitBounds`/`setView` when pins resolve.
+- **`ordersApi`:** `*` select documents that `delivery_lat`/`delivery_lng` ride along once columns exist; tolerate undefined gracefully.
+- **Rider GPS:** still rejects `accuracy > UNUSABLE_ACCURACY_M` (no marker); clearer “Waiting for GPS” copy.

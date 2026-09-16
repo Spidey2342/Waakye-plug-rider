@@ -185,6 +185,16 @@ export function distanceMeters(a, b) {
   return 2 * R * Math.asin(Math.sqrt(h));
 }
 
+// Coerce a lat/lng pair to finite numbers, or null if either is missing /
+// non-numeric. Used so saved GPS columns win over Nominatim when present,
+// and undefined columns (pre-migration orders) fall through cleanly.
+export function parseLatLng(lat, lng) {
+  const la = typeof lat === 'number' ? lat : parseFloat(lat);
+  const ln = typeof lng === 'number' ? lng : parseFloat(lng);
+  if (!Number.isFinite(la) || !Number.isFinite(ln)) return null;
+  return { lat: la, lng: ln };
+}
+
 // Speaks a turn instruction out loud using the browser's built-in voice —
 // free, no API key, works offline once the page has loaded.
 export function speak(text) {
