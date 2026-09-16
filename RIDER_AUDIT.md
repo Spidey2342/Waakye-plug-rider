@@ -173,3 +173,9 @@
 ### 2026-09-15 — S3 STATUS CORRECTION: deployed since 2026-09-12, not "pending" ✅
 S3 line above still read "deployment pending" — stale. add-rider/decline-rider/approve-rider have been live since the 2026-09-12 deploy; S3 is fully CLOSED, no pending deployment anywhere in the rider app.
 
+### 2026-09-16 — Accept status guard + Accra settlement lock (Archilles / Lumora Team) ✅
+**Fix 1 — `acceptOrder` status guard:** update now requires `.eq('status', 'available')` alongside `rider_id IS NULL`. Empty result message: "This order is no longer available." `fetchAvailableOrders` no longer queries legacy `ready` — only `available`. Closes the residual S4 accept hole (cancelled/unassigned reclaim).
+
+**Fix 2 — settlement lock timezone:** `shouldLockForSettlement` uses **Africa/Accra** noon (via `Intl` + UTC noon on Accra calendar day; Accra is UTC+0 year-round). `App.jsx` still fails open on first-fetch network errors, but **fails closed** when a prior successful fetch in the session showed `commission_owed > 0`.
+
+**S4 note:** Canonical order statuses already agree across apps (`available → rider_assigned → picked_up → delivered` + `cancelled`). Remaining rider-side gap was accept without a status guard — closed above. Self-apply remains **pending until admin approve** (not auto-approve).
