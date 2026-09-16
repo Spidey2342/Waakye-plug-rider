@@ -27,7 +27,7 @@ See **[docs/SETUP.md](docs/SETUP.md)** for env vars, install, and edge-function 
 
 ```bash
 npm install
-cp .env.example .env   # or create .env with the vars listed in SETUP.md
+# Create .env with the vars listed in SETUP.md (there is no .env.example in this repo)
 npm run dev
 ```
 

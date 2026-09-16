@@ -27,6 +27,8 @@ Every screen file, every `src/lib` module, and every edge function as of the doc
 
 ### `HomeScreen.jsx`
 - Lists `fetchAvailableOrders()` (`status = available`, `rider_id IS NULL`)
+- **Realtime** Supabase channel `available-orders` (`postgres_changes` on `orders`, any event) → immediate refetch
+- **30s poll fallback** (`setInterval`) if realtime drops silently — secondary safety net, not primary
 - Online/offline via `setRiderOnlineStatus`
 - Accept → `acceptOrder` (race-safe + status guard)
 - Nav tabs to earnings / history / profile / settle
