@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { AddRiderScreen } from './components/screens/AddRiderScreen';
 import { LoginScreen } from './components/screens/LoginScreen';
 import { HomeScreen } from './components/screens/HomeScreen';
@@ -33,15 +33,31 @@ function App() {
   const [isLocked, setIsLocked] = useState(false);
   const [restoringSession, setRestoringSession] = useState(true);
 
+  // Last successful commission snapshot for this session. Used only when a
+  // later lock check fails to fetch — see fail-open / fail-closed rule below.
+  const lastKnownCommissionRef = useRef(null);
+
   async function checkSettlementLock(rider) {
     try {
       const { commissionOwed, lastSettledAt } = await fetchCommissionOwed(rider.id);
+      lastKnownCommissionRef.current = { commissionOwed, lastSettledAt };
       if (shouldLockForSettlement(commissionOwed, lastSettledAt)) {
         setIsLocked(true);
         setScreen('settleUp');
       }
     } catch {
-      // Fail open rather than fail closed on a network hiccup.
+      // Fail-open on a network hiccup when we have no prior snapshot (MVP).
+      // Fail-closed if we already know this rider owes commission, so a blip
+      // cannot bypass Settle Up after Accra noon.
+      const known = lastKnownCommissionRef.current;
+      if (
+        known &&
+        known.commissionOwed > 0 &&
+        shouldLockForSettlement(known.commissionOwed, known.lastSettledAt)
+      ) {
+        setIsLocked(true);
+        setScreen('settleUp');
+      }
     }
   }
 
