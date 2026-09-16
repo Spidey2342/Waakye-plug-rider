@@ -8,7 +8,7 @@ import { SettleUpScreen } from './components/screens/SettleUpScreen';
 import { OrderHistoryScreen } from './components/screens/OrderHistoryScreen';
 import { ProfileScreen } from './components/screens/ProfileScreen';
 import { ForgotPinScreen } from './components/screens/ForgotPinScreen';
-import { shouldLockForSettlement } from './lib/settlementLock';
+import { isPastAccraCutoff, shouldLockForSettlement } from './lib/settlementLock';
 import { fetchCommissionOwed } from './lib/earningsApi';
 import { getCurrentRider } from './lib/riderAuth';
 import { fetchActiveOrderForRider } from './lib/ordersApi';
@@ -46,15 +46,20 @@ function App() {
         setScreen('settleUp');
       }
     } catch {
-      // Fail-open on a network hiccup when we have no prior snapshot (MVP).
-      // Fail-closed if we already know this rider owes commission, so a blip
-      // cannot bypass Settle Up after Accra noon.
       const known = lastKnownCommissionRef.current;
-      if (
-        known &&
-        known.commissionOwed > 0 &&
-        shouldLockForSettlement(known.commissionOwed, known.lastSettledAt)
-      ) {
+
+      // After Accra noon, any failed fetch fails closed: an unknown or stale
+      // snapshot must not let a rider bypass Settle Up during a network blip.
+      // Settle Up re-fetches and can unlock if the rider actually owes 0.
+      if (isPastAccraCutoff()) {
+        setIsLocked(true);
+        setScreen('settleUp');
+        return;
+      }
+
+      // Before Accra noon, use the last successful snapshot when available;
+      // with no snapshot, failing open is safe because the cutoff has not hit.
+      if (known && shouldLockForSettlement(known.commissionOwed, known.lastSettledAt)) {
         setIsLocked(true);
         setScreen('settleUp');
       }
