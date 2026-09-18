@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Store,
@@ -13,18 +13,43 @@ import {
   User,
   Loader2,
 } from 'lucide-react';
-import { fetchAvailableOrders, acceptOrder, setRiderOnlineStatus } from '../../lib/ordersApi';
+import { fetchAvailableOrders, acceptOrder, setRiderOnlineStatus, updateRiderLocation } from '../../lib/ordersApi';
 import { supabase } from '../../lib/supabase';
+import { distanceMeters } from '../../lib/mapService';
 
-function OrderCard({ order, index, onAccept, accepting }) {
+// A GPS fix worse than this (meters) is a network/IP-based guess, not a
+// real GPS reading — same threshold ActiveOrderScreen uses. We just skip
+// showing a distance rather than displaying one built on a bad fix.
+const UNUSABLE_ACCURACY_M = 3000;
+
+// Rough average moped speed in Ghanaian urban/campus traffic, used only to
+// turn a real measured distance into a rough ETA. This is an estimate on
+// top of a real number, not a made-up distance — if we don't have a real
+// rider position yet, we don't show either figure.
+const ASSUMED_SPEED_KMH = 22;
+
+function OrderCard({ order, index, onAccept, accepting, riderPosition }) {
   const vendorName = order.vendors?.business_name ?? 'Vendor';
   const vendorLocation = order.vendors?.location ?? '';
-  // Distance/ETA aren't wired to real geolocation yet — that needs vendor
-  // coordinates + the rider's live position (planned for the OSM/OSRM map
-  // work). Until then we show whatever the order actually carries, or a
-  // plain fallback rather than a made-up number.
-  const distanceLabel = order.distance_km ? `${order.distance_km} km away` : 'Distance unavailable';
-  const etaLabel = order.eta_mins ? `${order.eta_mins} mins` : '—';
+  const vendorLat = order.vendors?.latitude;
+  const vendorLng = order.vendors?.longitude;
+
+  // Prefer a real, live-computed distance (rider's actual GPS position vs.
+  // the vendor's real coordinates) over whatever the order row happens to
+  // carry. This is straight-line distance, not a routed one — good enough
+  // for "how far is this pickup", cheap (no per-card network call), and
+  // still an honest number rather than a placeholder.
+  let distanceKm = order.distance_km ?? null;
+  if (riderPosition && vendorLat != null && vendorLng != null) {
+    const meters = distanceMeters(riderPosition, { lat: vendorLat, lng: vendorLng });
+    distanceKm = Math.round((meters / 1000) * 10) / 10;
+  }
+
+  const distanceLabel = distanceKm != null ? `${distanceKm} km away` : 'Distance unavailable';
+  const etaLabel =
+    order.eta_mins ??
+    (distanceKm != null ? Math.max(1, Math.round((distanceKm / ASSUMED_SPEED_KMH) * 60)) : null);
+  const etaDisplay = etaLabel != null ? `${etaLabel} mins` : '—';
 
   return (
     <motion.div
@@ -62,7 +87,7 @@ function OrderCard({ order, index, onAccept, accepting }) {
         </div>
         <div>
           <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wide">Est. Time</p>
-          <p className="font-bold text-sm mt-0.5">{etaLabel}</p>
+          <p className="font-bold text-sm mt-0.5">{etaDisplay}</p>
         </div>
       </div>
 
@@ -94,6 +119,46 @@ export function HomeScreen({ rider, onNavigate, onOrderAccepted }) {
   const [isOnline, setIsOnline] = useState(rider?.is_online ?? false);
   const [accepting, setAccepting] = useState(null);
   const [error, setError] = useState(null);
+  const [riderPosition, setRiderPosition] = useState(null);
+  const lastLocationSyncAtRef = useRef(0);
+
+  // Live location while online. This previously didn't exist at all on
+  // this screen — the rider's position was only ever read once a delivery
+  // was already active. Going online now starts a GPS watch that (a)
+  // drives the real distance/ETA on each order card above, and (b) keeps
+  // the rider's row in Supabase current so a customer/vendor/admin view
+  // can see the rider's live position even before they accept an order.
+  useEffect(() => {
+    if (!isOnline || !('geolocation' in navigator)) {
+      setRiderPosition(null);
+      return;
+    }
+
+    const watchId = navigator.geolocation.watchPosition(
+      (pos) => {
+        const accuracy = pos.coords.accuracy ?? null;
+        // Same guard as ActiveOrderScreen: never trust a fix this bad,
+        // not even as a fallback — it can be off by entire cities.
+        if (accuracy != null && accuracy > UNUSABLE_ACCURACY_M) return;
+
+        const next = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+        setRiderPosition(next);
+
+        const now = Date.now();
+        if (now - lastLocationSyncAtRef.current < 8000) return;
+        lastLocationSyncAtRef.current = now;
+        updateRiderLocation(rider.id, next.lat, next.lng);
+      },
+      () => {
+        // Silent on the list screen — ActiveOrderScreen is the place that
+        // surfaces a location-permission error to the rider, since that's
+        // where they actually need it to navigate.
+      },
+      { enableHighAccuracy: true, maximumAge: 5000 }
+    );
+
+    return () => navigator.geolocation.clearWatch(watchId);
+  }, [isOnline, rider?.id]);
 
   const loadOrders = useCallback(async () => {
     setLoading(true);
@@ -252,7 +317,14 @@ export function HomeScreen({ rider, onNavigate, onOrderAccepted }) {
           ) : (
             <AnimatePresence>
               {orders.map((order, i) => (
-                <OrderCard key={order.id} order={order} index={i} onAccept={handleAccept} accepting={accepting} />
+                <OrderCard
+                  key={order.id}
+                  order={order}
+                  index={i}
+                  onAccept={handleAccept}
+                  accepting={accepting}
+                  riderPosition={riderPosition}
+                />
               ))}
             </AnimatePresence>
           )}

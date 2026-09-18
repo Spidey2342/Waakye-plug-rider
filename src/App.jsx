@@ -213,6 +213,7 @@ function App() {
     return (
       <ActiveOrderScreen
         order={activeOrder}
+        riderId={loggedInRider?.id}
         onBack={() => setScreen('home')}
         onDelivered={async () => {
           setActiveOrder(null);

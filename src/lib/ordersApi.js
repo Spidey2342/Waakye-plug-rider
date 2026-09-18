@@ -103,3 +103,26 @@ export async function setRiderOnlineStatus(riderId, isOnline) {
 
   if (error) throw new Error(error.message);
 }
+
+// Persists this rider's live GPS position so anything else on the platform
+// (a customer "where's my rider" map, a vendor dashboard, an admin view)
+// can actually read where the rider is. Previously the app only ever kept
+// this in local React state during an active delivery — it was never
+// written to the database, so nothing outside this one browser tab could
+// ever see it. Call this on a throttle (every 5-10s), not on every GPS tick.
+export async function updateRiderLocation(riderId, lat, lng) {
+  if (!riderId || lat == null || lng == null) return;
+
+  const { error } = await supabase
+    .from('riders')
+    .update({
+      current_lat: lat,
+      current_lng: lng,
+      location_updated_at: new Date().toISOString(),
+    })
+    .eq('id', riderId);
+
+  // Location pings are best-effort — a rare failed write shouldn't
+  // interrupt the rider's delivery flow, so we log rather than throw.
+  if (error) console.warn('Failed to sync rider location:', error.message);
+}

@@ -15,7 +15,7 @@ import {
   Loader2,
   Check,
 } from 'lucide-react';
-import { markPickedUp, markDelivered } from '../../lib/ordersApi';
+import { markPickedUp, markDelivered, updateRiderLocation } from '../../lib/ordersApi';
 import { geocodeAddress, getRoute, distanceMeters, speak } from '../../lib/mapService';
 import { reportIssue } from '../../lib/issuesApi';
 
@@ -52,6 +52,15 @@ const ROUTE_DEVIATION_THRESHOLD_M = 150;
 // whole time — avoids hammering the free public routing server.
 const ROUTE_RECALC_COOLDOWN_MS = 20000;
 
+// How often the rider's live position gets written to Supabase. GPS ticks
+// arrive far more often than this (every few seconds with watchPosition) —
+// without a throttle here every single tick would be a DB write. This is
+// the piece that was previously missing entirely: the rider's position
+// existed only in this component's local state and was never persisted,
+// so nothing else on the platform (a customer tracking map, a vendor or
+// admin dashboard) could ever see where the rider actually was.
+const LOCATION_SYNC_INTERVAL_MS = 8000;
+
 function makeDivIcon(color, pulse = false) {
   return L.divIcon({
     className: '',
@@ -78,7 +87,7 @@ function distanceToPolylineMeters(point, coordinates) {
   return min;
 }
 
-export function ActiveOrderScreen({ order: initialOrder, onDelivered, onBack }) {
+export function ActiveOrderScreen({ order: initialOrder, riderId, onDelivered, onBack }) {
   const mapRef = useRef(null);
   const mapContainerRef = useRef(null);
   const riderMarkerRef = useRef(null);
@@ -87,6 +96,7 @@ export function ActiveOrderScreen({ order: initialOrder, onDelivered, onBack }) 
   const customerMarkerRef = useRef(null);
   const spokenStepIndexRef = useRef(-1);
   const lastRouteFetchAtRef = useRef(0);
+  const lastLocationSyncAtRef = useRef(0);
 
   const [order, setOrder] = useState(initialOrder);
   const [vendorCoords, setVendorCoords] = useState(null);
@@ -215,6 +225,20 @@ export function ActiveOrderScreen({ order: initialOrder, onDelivered, onBack }) 
     );
     return () => navigator.geolocation.clearWatch(watchId);
   }, [handlePosition]);
+
+  // Push the rider's live position to Supabase, throttled. This is what
+  // actually makes the location "real" outside this browser tab — without
+  // it, riderPosition only ever drove this screen's own map/route and was
+  // never visible to a customer tracking their order, a vendor, or admin.
+  useEffect(() => {
+    if (!riderId || !riderPosition) return;
+
+    const now = Date.now();
+    if (now - lastLocationSyncAtRef.current < LOCATION_SYNC_INTERVAL_MS) return;
+    lastLocationSyncAtRef.current = now;
+
+    updateRiderLocation(riderId, riderPosition.lat, riderPosition.lng);
+  }, [riderId, riderPosition]);
 
   const hasPosition = Boolean(riderPosition);
   useEffect(() => {
