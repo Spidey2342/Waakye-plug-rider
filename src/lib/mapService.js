@@ -195,6 +195,75 @@ export function parseLatLng(lat, lng) {
   return { lat: la, lng: ln };
 }
 
+/**
+ * Pull lat/lng out of a free-text delivery_address when the customer app
+ * embedded a Google Maps query link (or bare coords) instead of filling
+ * delivery_lat/lng. Returns null if nothing parseable is found.
+ *
+ * Recognizes:
+ *   - maps?q=LAT,LNG / ?q=LAT,LNG / &q=LAT,LNG (incl. %2C commas)
+ *   - @LAT,LNG (Google Maps place / viewport URLs)
+ *   - bare "LAT, LNG" on/near the last line of the string
+ */
+export function parseCoordsFromAddress(text) {
+  const raw = (text || '').trim();
+  if (!raw) return null;
+
+  let s = raw;
+  try {
+    // Decode %2C etc. so URL-encoded commas still match the pair regex.
+    s = decodeURIComponent(raw.replace(/\+/g, ' '));
+  } catch {
+    s = raw;
+  }
+
+  const PAIR = '(-?\\d+(?:\\.\\d+)?)\\s*,\\s*(-?\\d+(?:\\.\\d+)?)';
+  const patterns = [
+    new RegExp(`[?&]q=${PAIR}`, 'i'),
+    new RegExp(`maps\\?q=${PAIR}`, 'i'),
+    new RegExp(`@${PAIR}`),
+  ];
+
+  for (const re of patterns) {
+    const m = s.match(re);
+    if (!m) continue;
+    const coords = parseLatLng(m[1], m[2]);
+    if (coords && Math.abs(coords.lat) <= 90 && Math.abs(coords.lng) <= 180) {
+      return coords;
+    }
+  }
+
+  // Bare pair near the end — last line, or trailing match in the last ~100 chars.
+  const lines = s.split(/\r?\n/);
+  const lastLine = (lines[lines.length - 1] || '').trim();
+  const tail = lastLine.length > 0 ? lastLine : s.slice(-100);
+  const bare = tail.match(new RegExp(`${PAIR}\\s*$`));
+  if (bare) {
+    const coords = parseLatLng(bare[1], bare[2]);
+    if (coords && Math.abs(coords.lat) <= 90 && Math.abs(coords.lng) <= 180) {
+      return coords;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Resolve the customer dropoff pin:
+ *   1. order.delivery_lat / delivery_lng when finite
+ *   2. else lat,lng parsed from delivery_address (Maps link / bare pair)
+ *   3. else Nominatim geocode of delivery_address (Ghana-biased)
+ */
+export async function resolveCustomerDropoff(order, opts = {}) {
+  const saved = parseLatLng(order?.delivery_lat, order?.delivery_lng);
+  if (saved) return saved;
+
+  const fromText = parseCoordsFromAddress(order?.delivery_address);
+  if (fromText) return fromText;
+
+  return geocodeAddress(order?.delivery_address || '', opts);
+}
+
 // Speaks a turn instruction out loud using the browser's built-in voice —
 // free, no API key, works offline once the page has loaded.
 export function speak(text) {
