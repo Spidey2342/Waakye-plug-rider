@@ -255,7 +255,7 @@ export function ActiveOrderScreen({ order: initialOrder, riderId, onDelivered, o
     navigator.geolocation.getCurrentPosition(
       handlePosition,
       () => {},
-      { enableHighAccuracy: false, timeout: 8000, maximumAge: 60000 }
+      { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
     );
 
     const watchId = navigator.geolocation.watchPosition(
