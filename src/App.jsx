@@ -32,6 +32,7 @@ function App() {
   const [activeOrder, setActiveOrder] = useState(null);
   const [isLocked, setIsLocked] = useState(false);
   const [restoringSession, setRestoringSession] = useState(true);
+  const [submitError, setSubmitError] = useState(null);
 
   // Last successful commission snapshot for this session. Used only when a
   // later lock check fails to fetch — see fail-open / fail-closed rule below.
@@ -104,6 +105,7 @@ function App() {
   }, []);
 
   async function handleAddRider(formData) {
+    setSubmitError(null);
     const res = await fetch(
       `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/add-rider`,
       {
@@ -130,15 +132,18 @@ function App() {
     const result = await res.json();
 
     if (!res.ok) {
-      alert(`Failed to add rider: ${result.error || 'Unknown error'}`);
+      const errorMsg = `Failed to add rider: ${result.error || 'Unknown error'}`;
+      setSubmitError(errorMsg);
       throw new Error(result.error || 'Failed to add rider');
     }
 
     setSuccessMessage(`${formData.full_name} was added successfully.`);
+    setSubmitError(null);
     setScreen('success');
   }
 
   async function handleApply(formData) {
+    setSubmitError(null);
     const res = await fetch(
       `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/add-rider`,
       {
@@ -165,11 +170,13 @@ function App() {
     const result = await res.json();
 
     if (!res.ok) {
-      alert(`Could not submit application: ${result.error || 'Unknown error'}`);
+      const errorMsg = `Could not submit application: ${result.error || 'Unknown error'}`;
+      setSubmitError(errorMsg);
       throw new Error(result.error || 'Could not submit application');
     }
 
     setSuccessMessage(`Thanks, ${formData.full_name}! We'll review your application and reach out soon.`);
+    setSubmitError(null);
     setScreen('success');
   }
 
@@ -207,11 +214,26 @@ function App() {
   }
 
   if (screen === 'addRider') {
-    return <AddRiderScreen onBack={() => setScreen('login')} onSubmit={handleAddRider} />;
+    return (
+      <AddRiderScreen
+        onBack={() => { setScreen('login'); setSubmitError(null); }}
+        onSubmit={handleAddRider}
+        error={submitError}
+        onErrorDismiss={() => setSubmitError(null)}
+      />
+    );
   }
 
   if (screen === 'apply') {
-    return <AddRiderScreen mode="apply" onBack={() => setScreen('login')} onSubmit={handleApply} />;
+    return (
+      <AddRiderScreen
+        mode="apply"
+        onBack={() => { setScreen('login'); setSubmitError(null); }}
+        onSubmit={handleApply}
+        error={submitError}
+        onErrorDismiss={() => setSubmitError(null)}
+      />
+    );
   }
 
   if (screen === 'home') {

@@ -17,12 +17,26 @@ npm install
 
 ## Environment (client)
 
-Create `.env` in the repo root (never commit secrets):
+Copy `.env.example` to `.env` in the repo root and fill in your values (never commit secrets):
+
+```bash
+cp .env.example .env
+```
+
+Required variables:
 
 ```bash
 VITE_SUPABASE_URL=https://verncapitxzsgcughvil.supabase.co
 VITE_SUPABASE_ANON_KEY=<anon-key>
 VITE_PAYSTACK_PUBLIC_KEY=<paystack-public-key>
+```
+
+Optional variables:
+
+```bash
+# Support WhatsApp number (country code, no + or spaces)
+# Falls back to 233599995651 if not set
+VITE_SUPPORT_WHATSAPP=233599995651
 ```
 
 Missing Supabase vars cause `supabase.js` to throw at import time. Missing Paystack public key throws when opening settlement checkout.

@@ -27,7 +27,8 @@ See **[docs/SETUP.md](docs/SETUP.md)** for env vars, install, and edge-function 
 
 ```bash
 npm install
-# Create .env with the vars listed in SETUP.md (there is no .env.example in this repo)
+# Copy .env.example to .env and fill in your values
+cp .env.example .env
 npm run dev
 ```
 
@@ -52,7 +53,7 @@ npm run dev
 | Max vendor radius (customer) | **6 km** |
 | Order status enum | `available` → `rider_assigned` → `picked_up` → `delivered` \| `cancelled` |
 | Paystack amount tolerance | **+0.5 GHS** |
-| Chat Support WhatsApp | `233599995651` (**TODO: confirm**) |
+| Chat Support WhatsApp | Configurable via `VITE_SUPPORT_WHATSAPP` (default: `233599995651`) |
 | Synthetic rider email | `{phone}@riders.waakyeplug.app` |
 | Auth password shape | `{pin}{last4 of phone}` (server-side only; never typed by rider) |
 
@@ -65,9 +66,7 @@ Merged rider work: `acceptOrder` requires `status = 'available'` **and** `rider_
 Documented fully in FEATURES / OPERATIONS / audit:
 
 - HomeScreen distance/ETA still shows "Distance unavailable" / "—" until vendor GPS + rider position are wired into OSRM cards
-- WhatsApp support number hardcoded with TODO to confirm (`233599995651`)
 - Settlement lock **fails open** on first-fetch network error (fails closed if session already knew commission was owed)
-- `alert()` still used for add-rider / apply failures in `App.jsx`
 - Resend sender may still be placeholder (`onboarding@resend.dev`) until domain + secrets are verified
 - **`supabase/functions/add-rider/index.ts` still has unresolved Git conflict markers on `main`** (`<<<<<<< HEAD` / `=======` / `>>>>>>> …`) — must be resolved before relying on that function's source in-repo
 
