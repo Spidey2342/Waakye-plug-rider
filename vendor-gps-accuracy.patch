@@ -1,0 +1,65 @@
+From 3e7617a80595c6570a1a3c90741337d45d9a17d1 Mon Sep 17 00:00:00 2001
+From: Cursor Agent <cursoragent@cursor.com>
+Date: Fri, 18 Sep 2026 18:41:41 +0000
+Subject: [PATCH] Add GPS accuracy validation before saving vendor location
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Reject coordinates with accuracy >1000m (network/IP fallback) or >500m
+(marginal GPS). Clear user guidance to enable Precise Location and go
+outdoors. Prevents saving inaccurate pins that cause routing errors
+like the Waakye Plug Ho→Accra 157km bug.
+
+Success toast now shows accuracy when available.
+---
+ src/pages/tabs/SettingsTab.tsx | 27 ++++++++++++++++++++++++++-
+ 1 file changed, 26 insertions(+), 1 deletion(-)
+
+diff --git a/src/pages/tabs/SettingsTab.tsx b/src/pages/tabs/SettingsTab.tsx
+index 5ff8bad..51fa0f6 100644
+--- a/src/pages/tabs/SettingsTab.tsx
++++ b/src/pages/tabs/SettingsTab.tsx
+@@ -78,13 +78,38 @@ export default function SettingsTab({ vendor, onVendorUpdated }: { vendor: Vendo
+     setLocatingGps(true);
+     navigator.geolocation.getCurrentPosition(
+       async (position) => {
++        const accuracy = position.coords.accuracy ?? null;
++        
++        if (accuracy != null && accuracy > 1000) {
++          toastError(
++            `GPS accuracy is too low (±${Math.round(accuracy)}m). ` +
++            `Enable Precise Location in your device settings, go outdoors for clear sky, ` +
++            `and use a phone (not a laptop). Accurate GPS prevents routing errors for riders.`
++          );
++          setLocatingGps(false);
++          return;
++        }
++        
++        if (accuracy != null && accuracy > 500) {
++          toastError(
++            `GPS accuracy is marginal (±${Math.round(accuracy)}m). ` +
++            `For best results, enable Precise Location and ensure clear sky view. ` +
++            `Location was NOT saved — try again with better accuracy.`
++          );
++          setLocatingGps(false);
++          return;
++        }
++        
+         try {
+           const updated = await updateVendor(vendor.id, {
+             latitude: position.coords.latitude,
+             longitude: position.coords.longitude,
+           });
+           onVendorUpdated(updated);
+-          toastSuccess('Shop location saved. Customers can now see how far they are from you.');
++          toastSuccess(
++            `Shop location saved${accuracy != null ? ` (±${Math.round(accuracy)}m)` : ''}. ` +
++            `Customers can now see how far they are from you.`
++          );
+         } catch (err: any) {
+           toastError(err.message || 'Could not save location.');
+         } finally {
+-- 
+2.43.0
+
