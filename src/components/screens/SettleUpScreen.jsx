@@ -152,25 +152,36 @@ export function SettleUpScreen({ rider, onSettled }) {
           )}
         </AnimatePresence>
 
-        {/* ── Pay button ── */}
-        <motion.button
-          whileTap={{ scale: 0.98 }}
-          onClick={handlePay}
-          disabled={loading || paying || !summary || summary.commissionOwed <= 0}
-          className="w-full bg-[#7a1d1d] text-white py-4 rounded-2xl font-bold text-base flex items-center justify-center gap-2 shadow-md disabled:opacity-50"
-        >
-          {paying ? (
-            <>
-              <Loader2 className="w-4 h-4 animate-spin" />
-              Processing...
-            </>
-          ) : (
-            <>
-              Pay with Paystack
-              <ArrowRight className="w-4 h-4" />
-            </>
-          )}
-        </motion.button>
+        {/* ── Pay / Continue button ── */}
+        {summary && summary.commissionOwed <= 0 ? (
+          <motion.button
+            whileTap={{ scale: 0.98 }}
+            onClick={onSettled}
+            className="w-full bg-[#7a1d1d] text-white py-4 rounded-2xl font-bold text-base flex items-center justify-center gap-2 shadow-md"
+          >
+            Continue to Home
+            <ArrowRight className="w-4 h-4" />
+          </motion.button>
+        ) : (
+          <motion.button
+            whileTap={{ scale: 0.98 }}
+            onClick={handlePay}
+            disabled={loading || paying || !summary}
+            className="w-full bg-[#7a1d1d] text-white py-4 rounded-2xl font-bold text-base flex items-center justify-center gap-2 shadow-md disabled:opacity-50"
+          >
+            {paying ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Processing...
+              </>
+            ) : (
+              <>
+                Pay with Paystack
+                <ArrowRight className="w-4 h-4" />
+              </>
+            )}
+          </motion.button>
+        )}
 
         <div className="flex flex-col items-center gap-1 mt-6">
           <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wide">

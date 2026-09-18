@@ -58,8 +58,12 @@ export function EarningsScreen({ rider, onNavigate }) {
               <History className="w-5 h-5 text-[#7a1d1d]" />
               <h1 className="text-2xl font-extrabold">Earnings</h1>
             </div>
-            <button className="w-9 h-9 rounded-full bg-white border border-gray-200 flex items-center justify-center">
-              <Calendar className="w-4 h-4 text-gray-500" />
+            <button
+              disabled
+              className="w-9 h-9 rounded-full bg-gray-100 border border-gray-200 flex items-center justify-center opacity-50 cursor-not-allowed"
+              title="Calendar view coming soon"
+            >
+              <Calendar className="w-4 h-4 text-gray-400" />
             </button>
           </div>
 
@@ -143,8 +147,12 @@ export function EarningsScreen({ rider, onNavigate }) {
                 )}
               </div>
 
-              <button className="w-full border-2 border-dashed border-gray-200 text-gray-400 font-bold text-sm py-3 rounded-2xl">
-                View Older History
+              <button
+                disabled
+                className="w-full border-2 border-dashed border-gray-200 text-gray-300 font-bold text-sm py-3 rounded-2xl cursor-not-allowed"
+                title="Older history view coming soon"
+              >
+                View Older History (Coming Soon)
               </button>
             </>
           )}
