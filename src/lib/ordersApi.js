@@ -1,5 +1,12 @@
 import { supabase } from './supabase';
 
+// Order selects use `*` so delivery_lat / delivery_lng (customer pin coords
+// written by the customer app at checkout) are included once those columns
+// exist in production. Older orders without them leave the fields undefined
+// — ActiveOrderScreen falls back to Nominatim geocode of delivery_address.
+// Do not list delivery_lat/lng explicitly: missing columns would break the
+// whole select before the customer-app migration lands.
+
 // Vendor fields every order query needs: latitude/longitude are the real
 // GPS coordinates a vendor can set from their Settings tab ("Use My
 // Current Location"). When present, the rider app should use them
@@ -9,13 +16,14 @@ import { supabase } from './supabase';
 // vendors who haven't set precise coordinates yet, and for display.
 const VENDOR_FIELDS = 'business_name, location, latitude, longitude, phone';
 
-// Orders a rider can see and accept: no rider assigned yet, vendor has
-// marked them ready (covers your original 'ready' rows and new 'available' ones).
+// Orders a rider can see and accept: unassigned and still in the
+// available pool. Canonical status enum no longer includes legacy
+// `ready` (DB CHECK: available | rider_assigned | picked_up | delivered | cancelled).
 export async function fetchAvailableOrders() {
   const { data, error } = await supabase
     .from('orders')
     .select(`*, vendors(${VENDOR_FIELDS})`)
-    .in('status', ['ready', 'available'])
+    .eq('status', 'available')
     .is('rider_id', null)
     .order('created_at', { ascending: true });
 
@@ -43,13 +51,15 @@ export async function fetchActiveOrderForRider(riderId) {
   return data;
 }
 
-// Safely claim an order: .is('rider_id', null) means this only succeeds if
-// nobody beat them to it a second earlier. Empty result = lost the race.
+// Safely claim an order: only succeeds if the row is still `available` AND
+// nobody else took it (rider_id IS NULL). Empty result = lost the race or
+// the order left the pool (cancelled / already assigned).
 export async function acceptOrder(orderId, riderId) {
   const { data, error } = await supabase
     .from('orders')
     .update({ rider_id: riderId, status: 'rider_assigned' })
     .eq('id', orderId)
+    .eq('status', 'available')
     .is('rider_id', null)
     .select(`*, vendors(${VENDOR_FIELDS})`);
 
@@ -64,7 +74,7 @@ export async function acceptOrder(orderId, riderId) {
     throw new Error(error.message);
   }
   if (!data || data.length === 0) {
-    throw new Error('This order was just accepted by another rider.');
+    throw new Error('This order is no longer available.');
   }
   return data[0];
 }
@@ -103,6 +113,7 @@ export async function setRiderOnlineStatus(riderId, isOnline) {
 
   if (error) throw new Error(error.message);
 }
+<<<<<<< HEAD
 
 // Persists this rider's live GPS position so anything else on the platform
 // (a customer "where's my rider" map, a vendor dashboard, an admin view)
@@ -126,3 +137,5 @@ export async function updateRiderLocation(riderId, lat, lng) {
   // interrupt the rider's delivery flow, so we log rather than throw.
   if (error) console.warn('Failed to sync rider location:', error.message);
 }
+=======
+>>>>>>> 6d12c60de798093d5d058bf0bd320e51346a956f

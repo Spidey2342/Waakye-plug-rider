@@ -173,3 +173,29 @@
 ### 2026-09-15 — S3 STATUS CORRECTION: deployed since 2026-09-12, not "pending" ✅
 S3 line above still read "deployment pending" — stale. add-rider/decline-rider/approve-rider have been live since the 2026-09-12 deploy; S3 is fully CLOSED, no pending deployment anywhere in the rider app.
 
+### 2026-09-16 — Accept status guard + Accra settlement lock (Archilles / Lumora Team) ✅
+**Fix 1 — `acceptOrder` status guard:** update now requires `.eq('status', 'available')` alongside `rider_id IS NULL`. Empty result message: "This order is no longer available." `fetchAvailableOrders` no longer queries legacy `ready` — only `available`. Closes the residual S4 accept hole (cancelled/unassigned reclaim).
+
+**Fix 2 — settlement lock timezone:** `shouldLockForSettlement` uses **Africa/Accra** noon (via `Intl` + UTC noon on Accra calendar day; Accra is UTC+0 year-round). `App.jsx` still fails open on first-fetch network errors, but **fails closed** when a prior successful fetch in the session showed `commission_owed > 0`.
+
+**S4 note:** Canonical order statuses already agree across apps (`available → rider_assigned → picked_up → delivered` + `cancelled`). Remaining rider-side gap was accept without a status guard — closed above. Self-apply remains **pending until admin approve** (not auto-approve).
+
+### 2026-09-16 — add-rider conflict markers resolved
+- Cleared unresolved `<<<<<<<` / `=======` / `>>>>>>>` markers in `supabase/functions/add-rider/index.ts`.
+- Kept admin-JWT → approved, anon/self-apply → pending security model.
+
+### 2026-09-16 — Map geocoding hardened (Ghana Nominatim + pin-first pan) ✅
+**Symptom (live WP-E7B5 / Morrison voice note):** Active order map stayed Accra-centered with "Could not locate one of the addresses" even when vendor lat/lng existed.
+**Root causes:** Nominatim calls had no identifying `User-Agent` (policy → empty/blocked results); geocode cache permanently stored misses; customer geocode had no locality bias; markers effect only `fitBounds` after a route — pins alone never left Accra.
+**Fix:**
+- `mapService.js` `geocodeAddress(address, opts?)`: User-Agent `WaakyePlugRider`; query ladder raw → +bias → +Ghana, each with `bounded=1` then `countrycodes=gh` without bounded; positive cache v2; negative cache ~15 min TTL.
+- `ActiveOrderScreen.jsx`: bias customer geocode with `vendor.location`; specific vendor/delivery/both error copy; always `setVendorCoords` on partial success; markers effect `fitBounds`/`setView` on vendor/customer/rider pins when no route yet.
+
+### 2026-09-16 — Settlement lock fail-closed on post-noon fetch errors ✅
+- After Accra noon, any commission fetch failure now locks the rider to Settle Up, including when no snapshot exists or the last snapshot said `commission_owed === 0`; before noon, a known snapshot is used and no snapshot still fails open.
+
+### 2026-09-16 — Production coords-first nav (delivery_lat/lng + Ho default) ✅
+- **Uber-style pins:** customer pin prefers `order.delivery_lat`/`delivery_lng` when both finite; vendor pin still prefers `vendors.latitude`/`longitude`. Nominatim `geocodeAddress` is fallback only (old orders / missing columns).
+- **Accra default removed:** map mounts on Ho `(6.6008, 0.4713)` or vendor coords already on the order; markers effect `fitBounds`/`setView` when pins resolve.
+- **`ordersApi`:** `*` select documents that `delivery_lat`/`delivery_lng` ride along once columns exist; tolerate undefined gracefully.
+- **Rider GPS:** still rejects `accuracy > UNUSABLE_ACCURACY_M` (no marker); clearer “Waiting for GPS” copy.

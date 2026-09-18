@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { AddRiderScreen } from './components/screens/AddRiderScreen';
 import { LoginScreen } from './components/screens/LoginScreen';
 import { HomeScreen } from './components/screens/HomeScreen';
@@ -8,7 +8,7 @@ import { SettleUpScreen } from './components/screens/SettleUpScreen';
 import { OrderHistoryScreen } from './components/screens/OrderHistoryScreen';
 import { ProfileScreen } from './components/screens/ProfileScreen';
 import { ForgotPinScreen } from './components/screens/ForgotPinScreen';
-import { shouldLockForSettlement } from './lib/settlementLock';
+import { isPastAccraCutoff, shouldLockForSettlement } from './lib/settlementLock';
 import { fetchCommissionOwed } from './lib/earningsApi';
 import { getCurrentRider } from './lib/riderAuth';
 import { fetchActiveOrderForRider } from './lib/ordersApi';
@@ -33,15 +33,36 @@ function App() {
   const [isLocked, setIsLocked] = useState(false);
   const [restoringSession, setRestoringSession] = useState(true);
 
+  // Last successful commission snapshot for this session. Used only when a
+  // later lock check fails to fetch — see fail-open / fail-closed rule below.
+  const lastKnownCommissionRef = useRef(null);
+
   async function checkSettlementLock(rider) {
     try {
       const { commissionOwed, lastSettledAt } = await fetchCommissionOwed(rider.id);
+      lastKnownCommissionRef.current = { commissionOwed, lastSettledAt };
       if (shouldLockForSettlement(commissionOwed, lastSettledAt)) {
         setIsLocked(true);
         setScreen('settleUp');
       }
     } catch {
-      // Fail open rather than fail closed on a network hiccup.
+      const known = lastKnownCommissionRef.current;
+
+      // After Accra noon, any failed fetch fails closed: an unknown or stale
+      // snapshot must not let a rider bypass Settle Up during a network blip.
+      // Settle Up re-fetches and can unlock if the rider actually owes 0.
+      if (isPastAccraCutoff()) {
+        setIsLocked(true);
+        setScreen('settleUp');
+        return;
+      }
+
+      // Before Accra noon, use the last successful snapshot when available;
+      // with no snapshot, failing open is safe because the cutoff has not hit.
+      if (known && shouldLockForSettlement(known.commissionOwed, known.lastSettledAt)) {
+        setIsLocked(true);
+        setScreen('settleUp');
+      }
     }
   }
 
