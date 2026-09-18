@@ -113,7 +113,6 @@ export async function setRiderOnlineStatus(riderId, isOnline) {
 
   if (error) throw new Error(error.message);
 }
-<<<<<<< HEAD
 
 // Persists this rider's live GPS position so anything else on the platform
 // (a customer "where's my rider" map, a vendor dashboard, an admin view)
@@ -137,5 +136,3 @@ export async function updateRiderLocation(riderId, lat, lng) {
   // interrupt the rider's delivery flow, so we log rather than throw.
   if (error) console.warn('Failed to sync rider location:', error.message);
 }
-=======
->>>>>>> 6d12c60de798093d5d058bf0bd320e51346a956f

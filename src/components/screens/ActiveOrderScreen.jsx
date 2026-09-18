@@ -15,13 +15,8 @@ import {
   Loader2,
   Check,
 } from 'lucide-react';
-<<<<<<< HEAD
 import { markPickedUp, markDelivered, updateRiderLocation } from '../../lib/ordersApi';
-import { geocodeAddress, getRoute, distanceMeters, speak } from '../../lib/mapService';
-=======
-import { markPickedUp, markDelivered } from '../../lib/ordersApi';
 import { geocodeAddress, getRoute, distanceMeters, speak, parseLatLng } from '../../lib/mapService';
->>>>>>> 6d12c60de798093d5d058bf0bd320e51346a956f
 import { reportIssue } from '../../lib/issuesApi';
 
 // TODO: replace with your real WhatsApp number (country code, no + or spaces)
