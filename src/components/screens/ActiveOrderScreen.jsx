@@ -16,7 +16,7 @@ import {
   Check,
 } from 'lucide-react';
 import { markPickedUp, markDelivered, updateRiderLocation } from '../../lib/ordersApi';
-import { geocodeAddress, getRoute, distanceMeters, speak, parseLatLng } from '../../lib/mapService';
+import { geocodeAddress, getRoute, distanceMeters, speak, parseLatLng, resolveCustomerDropoff } from '../../lib/mapService';
 import { reportIssue } from '../../lib/issuesApi';
 
 // TODO: replace with your real WhatsApp number (country code, no + or spaces)
@@ -158,13 +158,12 @@ export function ActiveOrderScreen({ order: initialOrder, riderId, onDelivered, o
           ? Promise.resolve(savedVendor)
           : geocodeAddress(vendorLocation || '');
 
-        // Customer pin: prefer delivery_lat/lng from the customer app. If the
-        // columns are absent (undefined) or non-finite, fall back to geocoding
-        // delivery_address with a vendor-locality bias for short addresses.
-        const savedDelivery = parseLatLng(order.delivery_lat, order.delivery_lng);
-        const customerPromise = savedDelivery
-          ? Promise.resolve(savedDelivery)
-          : geocodeAddress(order.delivery_address || '', { bias });
+        // Customer pin ladder: delivery_lat/lng → Maps-link / bare coords in
+        // delivery_address → Nominatim (vendor-locality bias for short addrs).
+        // OrderSummary often writes "street…\n🗺️ https://…maps?q=LAT,LNG"
+        // without filling delivery_lat/lng; parsing that link avoids a failed
+        // Nominatim call on the whole emoji+URL string.
+        const customerPromise = resolveCustomerDropoff(order, { bias });
 
         const [vendor, customer] = await Promise.all([vendorPromise, customerPromise]);
 
