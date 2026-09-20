@@ -37,6 +37,7 @@ npm run dev
 | Doc | Contents |
 |---|---|
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | System design, auth model, order lifecycle, money flow |
+| [docs/MAP_TRACKING.md](docs/MAP_TRACKING.md) | Rider map tracking: Leaflet/OSM/OSRM stack, GPS accuracy, pin sources, routing |
 | [docs/FEATURES.md](docs/FEATURES.md) | Exhaustive inventory of every screen, `src/lib` module, and edge function |
 | [docs/SETUP.md](docs/SETUP.md) | Local env, secrets, build, deploy |
 | [docs/OPERATIONS.md](docs/OPERATIONS.md) | Day-to-day rider ops, settlement lock, support |
