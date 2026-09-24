@@ -136,3 +136,80 @@ export async function updateRiderLocation(riderId, lat, lng) {
   // interrupt the rider's delivery flow, so we log rather than throw.
   if (error) console.warn('Failed to sync rider location:', error.message);
 }
+
+// ---- Story 1 / Phase 0: Order lifecycle edge function wrappers ----
+// These call the new edge functions (release-order, cancel-order, verify-delivery).
+// NOT wired to any UI yet — ActiveOrderScreen CTAs and admin panel are Story 2.
+// Production-shaped but stubbed for future integration.
+
+// Allows a rider to release (unassign) themselves from an order they've
+// accepted but haven't picked up yet. Calls the release-order edge function.
+export async function releaseOrder(orderId, releaseReason) {
+  const session = await supabase.auth.getSession();
+  const token = session.data.session?.access_token;
+  if (!token) throw new Error('Not authenticated');
+
+  const res = await fetch(`${supabase.supabaseUrl}/functions/v1/release-order`, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ order_id: orderId, release_reason: releaseReason }),
+  });
+
+  if (!res.ok) {
+    const error = await res.json();
+    throw new Error(error.error || 'Failed to release order');
+  }
+
+  return res.json();
+}
+
+// Admin-only cancellation. Calls the cancel-order edge function.
+export async function cancelOrder(orderId, cancelReason) {
+  const session = await supabase.auth.getSession();
+  const token = session.data.session?.access_token;
+  if (!token) throw new Error('Not authenticated');
+
+  const res = await fetch(`${supabase.supabaseUrl}/functions/v1/cancel-order`, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ order_id: orderId, cancel_reason: cancelReason }),
+  });
+
+  if (!res.ok) {
+    const error = await res.json();
+    throw new Error(error.error || 'Failed to cancel order');
+  }
+
+  return res.json();
+}
+
+// Verifies delivery by comparing the customer's 4-digit code against the
+// hashed version stored at checkout. Calls the verify-delivery edge function.
+// Rate-limited (5 wrong attempts per order per 15 minutes).
+export async function verifyDelivery(orderId, deliveryCode) {
+  const session = await supabase.auth.getSession();
+  const token = session.data.session?.access_token;
+  if (!token) throw new Error('Not authenticated');
+
+  const res = await fetch(`${supabase.supabaseUrl}/functions/v1/verify-delivery`, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ order_id: orderId, delivery_code: deliveryCode }),
+  });
+
+  if (!res.ok) {
+    const error = await res.json();
+    throw new Error(error.error || 'Failed to verify delivery');
+  }
+
+  return res.json();
+}
