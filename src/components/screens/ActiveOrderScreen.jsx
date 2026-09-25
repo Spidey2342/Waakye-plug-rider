@@ -15,7 +15,7 @@ import {
   Loader2,
   Check,
 } from 'lucide-react';
-import { markPickedUp, markDelivered, updateRiderLocation } from '../../lib/ordersApi';
+import { markPickedUp, markDelivered, updateRiderLocation, releaseOrder } from '../../lib/ordersApi';
 import { geocodeAddress, getRoute, distanceMeters, speak, parseLatLng, resolveCustomerDropoff } from '../../lib/mapService';
 import { reportIssue } from '../../lib/issuesApi';
 import { SUPPORT_WHATSAPP_NUMBER } from '../../lib/constants';
@@ -117,6 +117,9 @@ export function ActiveOrderScreen({ order: initialOrder, riderId, onDelivered, o
   const [issueText, setIssueText] = useState('');
   const [issueSubmitting, setIssueSubmitting] = useState(false);
   const [issueSubmitted, setIssueSubmitted] = useState(false);
+  const [showReturnToPool, setShowReturnToPool] = useState(false);
+  const [returnReason, setReturnReason] = useState('');
+  const [returnSubmitting, setReturnSubmitting] = useState(false);
 
   const target = order.status === 'picked_up' ? customerCoords : vendorCoords;
 
@@ -436,6 +439,18 @@ export function ActiveOrderScreen({ order: initialOrder, riderId, onDelivered, o
     }
   }
 
+  async function handleReturnToPool() {
+    setReturnSubmitting(true);
+    try {
+      await releaseOrder(order.id, returnReason.trim() || undefined);
+      setShowReturnToPool(false);
+      onBack();
+    } catch (err) {
+      setMapError(err.message);
+      setReturnSubmitting(false);
+    }
+  }
+
   return (
     <div className="min-h-[100dvh] bg-[#fefaf4] flex flex-col [webkit-tap-highlight-color:transparent]">
 
@@ -589,6 +604,16 @@ export function ActiveOrderScreen({ order: initialOrder, riderId, onDelivered, o
             Chat Support
           </button>
         </div>
+
+        {order.status === 'rider_assigned' && (
+          <button
+            onClick={() => setShowReturnToPool(true)}
+            className="w-full mt-3 flex items-center justify-center gap-2 border-2 border-amber-200 bg-amber-50 rounded-xl py-3 text-sm font-bold text-amber-700"
+          >
+            <AlertCircle className="w-4 h-4" />
+            Need to return this order?
+          </button>
+        )}
       </div>
 
       <AnimatePresence>
@@ -691,6 +716,54 @@ export function ActiveOrderScreen({ order: initialOrder, riderId, onDelivered, o
                   </button>
                 </>
               )}
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showReturnToPool && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/40 flex items-end justify-center z-50"
+            onClick={() => { setShowReturnToPool(false); setReturnReason(''); }}
+          >
+            <motion.div
+              initial={{ y: 100 }}
+              animate={{ y: 0 }}
+              exit={{ y: 100 }}
+              transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-white rounded-t-3xl w-full max-w-md p-6 pb-[calc(env(safe-area-inset-bottom)+24px)]"
+            >
+              <p className="font-bold text-lg mb-1">Return order to pool?</p>
+              <p className="text-sm text-gray-500 mb-4">
+                This will make the order available for other riders. Only do this if you can't reach the vendor or need to cancel for another reason.
+              </p>
+              <textarea
+                value={returnReason}
+                onChange={(e) => setReturnReason(e.target.value)}
+                placeholder="Why are you returning this order? (optional)"
+                rows={3}
+                className="w-full bg-[#faf6ee] border border-gray-200 rounded-xl p-3 text-sm outline-none resize-none mb-4 focus:border-[#7a1d1d]/50"
+              />
+              <motion.button
+                whileTap={{ scale: 0.98 }}
+                onClick={handleReturnToPool}
+                disabled={returnSubmitting}
+                className="w-full bg-amber-600 text-white py-4 rounded-2xl font-bold text-base flex items-center justify-center gap-2 disabled:opacity-60"
+              >
+                {returnSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                Yes, Return to Pool
+              </motion.button>
+              <button
+                onClick={() => { setShowReturnToPool(false); setReturnReason(''); }}
+                className="w-full text-center text-sm font-bold text-gray-400 mt-3 py-2"
+              >
+                Cancel
+              </button>
             </motion.div>
           </motion.div>
         )}
