@@ -50,14 +50,15 @@ async function requireAdmin(
 // Product rules (locked):
 // 1. Admin JWT required
 // 2. Allowed statuses: available | rider_assigned | picked_up
-// 3. Sets status to `cancelled`, clears rider_id, records cancel_reason
-// 4. STUB ONLY: customer WhatsApp notification, refund logic, and
-//    next-order delivery-fee percentage charge are TODO (see inline comments)
+// 3. Sets status to `cancelled`, clears rider_id, records cancel_reason,
+//    cancelled_at, and cancelled_by (admin user id)
+// 4. If previous status was `picked_up`: adds 0.70 * COALESCE(delivery_fee, 8)
+//    to customer's profiles.pending_delivery_fee_owed (customer debt, NOT rider penalty)
+// 5. Returns debt_added amount and pending_actions (WhatsApp notify, manual MoMo refund)
 //
-// What this does NOT yet do (intentionally stubbed for later stories):
-// - Customer WhatsApp notification (TODO: integrate WhatsApp Business API)
-// - Paystack refund logic (TODO: wire Paystack refund API)
-// - Delivery fee percentage penalty on rider's next order (TODO: determine %)
+// What this does NOT do (intentionally):
+// - Paystack refund (orders are cash/momo with no Paystack charge on this platform)
+// - WhatsApp notification (TODO: integrate WhatsApp Business API when credentials available)
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
@@ -85,7 +86,7 @@ Deno.serve(async (req) => {
     // Fetch the order to verify status and get customer info for notifications
     const { data: order, error: fetchError } = await supabaseAdmin
       .from('orders')
-      .select('id, status, rider_id, customer_id, total')
+      .select('id, status, rider_id, customer_id, total_amount, delivery_fee, payment_method')
       .eq('id', order_id)
       .maybeSingle();
 
@@ -101,13 +102,15 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Cancel the order: set status, clear rider assignment, record reason
+    // Cancel the order: set status, clear rider assignment, record reason and timestamp
     const { data: cancelled, error: updateError } = await supabaseAdmin
       .from('orders')
       .update({
         status: 'cancelled',
         rider_id: null,
         cancel_reason: cancel_reason.trim(),
+        cancelled_at: new Date().toISOString(),
+        cancelled_by: adminCheck.adminId,
       })
       .eq('id', order_id)
       .select()
@@ -117,36 +120,54 @@ Deno.serve(async (req) => {
       return jsonResponse(500, { error: 'Failed to cancel order' });
     }
 
-    // TODO (Story 2/3): Send WhatsApp notification to customer
+    // Customer debt logic: if order was picked_up when cancelled, customer owes
+    // 70% of delivery fee (as defined in locked rules). This compensates the
+    // rider for time/fuel spent on partial delivery. Customer debt is tracked
+    // in profiles.pending_delivery_fee_owed for later settlement/deduction.
+    let debtAdded = 0;
+    if (order.status === 'picked_up' && order.customer_id) {
+      const deliveryFee = Number(order.delivery_fee ?? 8);
+      const debtAmount = 0.70 * deliveryFee;
+      
+      const { error: debtError } = await supabaseAdmin.rpc('increment', {
+        table_name: 'profiles',
+        column_name: 'pending_delivery_fee_owed',
+        row_id: order.customer_id,
+        increment_value: debtAmount,
+      }).single();
+
+      // If the RPC doesn't exist, fall back to a direct update
+      if (debtError?.code === '42883') {
+        const { error: directDebtError } = await supabaseAdmin
+          .from('profiles')
+          .update({
+            pending_delivery_fee_owed: supabaseAdmin.raw(`COALESCE(pending_delivery_fee_owed, 0) + ${debtAmount}`),
+          })
+          .eq('id', order.customer_id);
+
+        if (!directDebtError) {
+          debtAdded = debtAmount;
+        }
+      } else if (!debtError) {
+        debtAdded = debtAmount;
+      }
+    }
+
+    // TODO: Send WhatsApp notification to customer
     // - Fetch customer phone from profiles or orders.customer_phone
-    // - Use WhatsApp Business API or Twilio to send cancellation notice
-    // - Include cancel_reason in message if customer-facing
+    // - Use WhatsApp Business API to send cancellation notice
+    // - Include cancel_reason if customer-facing
     // - Best-effort: don't block cancellation if WhatsApp send fails
 
-    // TODO (Story 2/3): Process refund via Paystack
-    // - Fetch payment reference from order or payments table
-    // - Call Paystack refund API with reference and amount
-    // - Handle partial refund logic if delivery was in progress
-    // - Record refund status in database (consider a refunds table)
-    // - Handle refund failures gracefully (alert admin, don't block cancel)
-
-    // TODO (Story 2/3): Apply delivery fee percentage penalty to rider's next order
-    // - Only if order was rider_assigned or picked_up (rider was involved)
-    // - Determine percentage (e.g., 20%, 50%, 100% of delivery fee?)
-    // - Record penalty in riders table or a rider_penalties table
-    // - Next order acceptance should check for pending penalties and apply
-    // - Consider: does penalty expire? Per-rider cap on penalties?
-
-    // For now, just return success with a note about the pending integrations
     return jsonResponse(200, {
       success: true,
       order: cancelled,
+      debt_added: debtAdded,
       pending_actions: {
-        customer_notification: 'WhatsApp notification not yet implemented',
-        refund: 'Paystack refund integration pending',
-        rider_penalty: order.rider_id
-          ? 'Delivery fee penalty on next order not yet implemented'
-          : null,
+        notify_customer: order.payment_method === 'momo' && order.status === 'picked_up'
+          ? 'Manual MoMo refund may be needed (70% delivery fee charged as customer debt)'
+          : 'Customer notification pending (WhatsApp not yet wired)',
+        notify_whatsapp: 'pending',
       },
     });
   } catch (err) {
