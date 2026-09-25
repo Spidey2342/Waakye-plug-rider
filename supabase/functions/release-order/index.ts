@@ -51,8 +51,8 @@ async function requireRider(
 // 1. Rider must own the order (rider_id matches)
 // 2. Status must be exactly `rider_assigned` (NOT picked_up)
 // 3. On success: status -> `available`, rider_id -> null
-// 4. Optional release_reason field (for analytics / future admin visibility)
-// 5. May insert/update order_issues note with the reason
+// 4. Sets released_at timestamp and release_reason
+// 5. Optional release_reason also recorded in order_issues for analytics
 //
 // What this does NOT do (intentionally):
 // - Does not allow releasing after pickup (picked_up status blocks it)
@@ -110,6 +110,10 @@ Deno.serve(async (req) => {
       .update({
         status: 'available',
         rider_id: null,
+        released_at: new Date().toISOString(),
+        release_reason: release_reason && typeof release_reason === 'string' && release_reason.trim()
+          ? release_reason.trim()
+          : null,
       })
       .eq('id', order_id)
       .select()
@@ -119,7 +123,7 @@ Deno.serve(async (req) => {
       return jsonResponse(500, { error: 'Failed to release order' });
     }
 
-    // If a reason was provided, record it in order_issues for admin visibility
+    // If a reason was provided, also record it in order_issues for admin visibility
     // and future analytics. This is best-effort — don't fail the release if
     // the issue insert fails.
     if (release_reason && typeof release_reason === 'string' && release_reason.trim()) {

@@ -149,7 +149,7 @@ export async function releaseOrder(orderId, releaseReason) {
   const token = session.data.session?.access_token;
   if (!token) throw new Error('Not authenticated');
 
-  const res = await fetch(`${supabase.supabaseUrl}/functions/v1/release-order`, {
+  const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/release-order`, {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${token}`,
@@ -172,7 +172,7 @@ export async function cancelOrder(orderId, cancelReason) {
   const token = session.data.session?.access_token;
   if (!token) throw new Error('Not authenticated');
 
-  const res = await fetch(`${supabase.supabaseUrl}/functions/v1/cancel-order`, {
+  const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/cancel-order`, {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${token}`,

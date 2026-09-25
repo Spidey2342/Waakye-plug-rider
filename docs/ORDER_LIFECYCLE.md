@@ -41,7 +41,8 @@ available → rider_assigned → picked_up → delivered
 - Rider must own the order (rider_id matches JWT)
 - Status must be exactly `rider_assigned` (NOT `picked_up`)
 - On success: `status` → `available`, `rider_id` → `null`
-- Optional `release_reason` is recorded in `order_issues` for admin visibility
+- Sets `released_at` timestamp and `release_reason` on the order
+- Optional `release_reason` is also recorded in `order_issues` for admin visibility
 
 **Response (success):**
 ```json
@@ -57,6 +58,11 @@ available → rider_assigned → picked_up → delivered
 - `404` Order not found
 - `400` Cannot release after pickup (status = `picked_up`)
 - `400` Cannot release in other statuses (delivered, cancelled, etc.)
+
+**UI integration:**
+- **WIRED**: ActiveOrderScreen shows "Need to return this order?" button when status is `rider_assigned`
+- Confirms with rider, allows optional reason input, calls `releaseOrder()` API wrapper
+- On success, navigates back to available orders list
 
 **Out of scope:**
 - Customer WhatsApp notification (later story)
@@ -81,17 +87,19 @@ available → rider_assigned → picked_up → delivered
 **Product rules (locked):**
 - Admin JWT required (reuses `requireAdmin` helper)
 - Allowed statuses: `available` | `rider_assigned` | `picked_up`
-- On success: `status` → `cancelled`, `rider_id` → `null`, `cancel_reason` recorded
+- On success: `status` → `cancelled`, `rider_id` → `null`
+- Records `cancel_reason`, `cancelled_at` timestamp, and `cancelled_by` (admin user id)
+- **Customer debt logic**: If previous status was `picked_up`, adds `0.70 * COALESCE(delivery_fee, 8)` to customer's `profiles.pending_delivery_fee_owed` (compensates rider for partial delivery work)
 
 **Response (success):**
 ```json
 {
   "success": true,
   "order": { /* updated order record */ },
+  "debt_added": 5.6,
   "pending_actions": {
-    "customer_notification": "WhatsApp notification not yet implemented",
-    "refund": "Paystack refund integration pending",
-    "rider_penalty": "Delivery fee penalty on next order not yet implemented" | null
+    "notify_customer": "Customer notification pending (WhatsApp not yet wired)",
+    "notify_whatsapp": "pending"
   }
 }
 ```
@@ -102,10 +110,14 @@ available → rider_assigned → picked_up → delivered
 - `404` Order not found
 - `400` Cannot cancel (status = `delivered` or `cancelled`)
 
-**TODO (stub comments in code):**
-- Customer WhatsApp notification via WhatsApp Business API
-- Paystack refund logic (fetch payment reference, call refund API)
-- Rider delivery fee percentage penalty on next order (percentage TBD)
+**What was implemented:**
+- ✅ Customer debt tracking (70% delivery fee added to `profiles.pending_delivery_fee_owed` when cancelled after pickup)
+- ✅ Proper column usage (`total_amount`, `delivery_fee` instead of `total`)
+- ✅ `cancelled_at`, `cancelled_by`, `cancel_reason` fields set on cancellation
+
+**Not implemented (by design):**
+- ❌ Paystack refund (orders are cash/momo; no Paystack charges exist)
+- ⏳ WhatsApp notification (TODO: needs WhatsApp Business API credentials; noted in response as "pending")
 
 ---
 
@@ -225,16 +237,15 @@ curl -X POST https://verncapitxzsgcughvil.supabase.co/functions/v1/verify-delive
 
 ---
 
-## Optional API Helpers
+## API Client Wrappers
 
-Thin client wrappers can be added to `src/lib/ordersApi.js` for future UI integration:
+Client wrappers in `src/lib/ordersApi.js` are now **production-ready and WIRED to UI**:
 
 ```javascript
-// Example stubs (DO NOT add UI buttons yet — later story)
-
+// ✅ WIRED: releaseOrder called from ActiveOrderScreen "Return to Pool" button
 export async function releaseOrder(orderId, releaseReason) {
   const token = (await supabase.auth.getSession()).data.session?.access_token;
-  const res = await fetch(`${supabase.supabaseUrl}/functions/v1/release-order`, {
+  const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/release-order`, {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${token}`,
@@ -246,9 +257,10 @@ export async function releaseOrder(orderId, releaseReason) {
   return res.json();
 }
 
+// ⏳ NOT YET WIRED: admin cancel UI is in vendor repo, not rider app
 export async function cancelOrder(orderId, cancelReason) {
   const token = (await supabase.auth.getSession()).data.session?.access_token;
-  const res = await fetch(`${supabase.supabaseUrl}/functions/v1/cancel-order`, {
+  const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/cancel-order`, {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${token}`,
@@ -260,9 +272,10 @@ export async function cancelOrder(orderId, cancelReason) {
   return res.json();
 }
 
+// ⏳ NOT YET WIRED: delivery code verify UI is stubbed in ActiveOrderScreen
 export async function verifyDelivery(orderId, deliveryCode) {
   const token = (await supabase.auth.getSession()).data.session?.access_token;
-  const res = await fetch(`${supabase.supabaseUrl}/functions/v1/verify-delivery`, {
+  const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/verify-delivery`, {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${token}`,
@@ -275,7 +288,7 @@ export async function verifyDelivery(orderId, deliveryCode) {
 }
 ```
 
-**Note:** These helpers are production-shaped but NOT wired to any UI yet. ActiveOrderScreen CTAs and report-issue return links are a later story (Story 2/Phase 1).
+**Note:** All wrappers now use `import.meta.env.VITE_SUPABASE_URL` (matching `settlementApi.js` pattern) instead of `supabase.supabaseUrl`.
 
 ---
 
