@@ -59,18 +59,13 @@ type RiderPayload = {
   ghana_card_number?: string | null;
 };
 
-async function parseRiderRequest(req: Request): Promise<
+async function parseMultipartRiderRequest(
+  req: Request,
+  supabaseAdmin: SupabaseClient
+): Promise<
   | { ok: true; payload: RiderPayload; cleanupPaths: string[] }
   | { ok: false; response: Response }
 > {
-  const contentType = req.headers.get('content-type') ?? '';
-
-  if (contentType.includes('multipart/form-data')) {
-    const supabaseAdmin = createClient(
-      Deno.env.get('SUPABASE_URL')!,
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
-    );
-
     const form = await req.formData();
     const full_name = String(form.get('full_name') ?? '').trim();
     const phone = String(form.get('phone') ?? '').trim();
@@ -145,6 +140,23 @@ async function parseRiderRequest(req: Request): Promise<
         }),
       };
     }
+}
+
+async function parseRiderRequest(
+  req: Request,
+  supabaseAdmin: SupabaseClient
+): Promise<
+  | { ok: true; payload: RiderPayload; cleanupPaths: string[] }
+  | { ok: false; response: Response }
+> {
+  const contentType = (req.headers.get('content-type') ?? '').toLowerCase();
+
+  // Photo apply/onboard uses multipart. Only parse JSON when the client
+  // explicitly sends application/json — otherwise req.json() tries to read
+  // the multipart boundary (starts with "--") and throws a confusing error.
+  const useJson = contentType.includes('application/json');
+  if (!useJson) {
+    return parseMultipartRiderRequest(req, supabaseAdmin);
   }
 
   const body = await req.json();
@@ -247,7 +259,7 @@ Deno.serve(async (req) => {
   );
 
   try {
-    const parsed = await parseRiderRequest(req);
+    const parsed = await parseRiderRequest(req, supabaseAdmin);
     if (!parsed.ok) return parsed.response;
 
     const {

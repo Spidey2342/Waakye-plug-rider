@@ -31,9 +31,27 @@ export async function submitRiderApplication(formData, { isSelfApply = false, ac
     body,
   });
 
-  const result = await res.json().catch(() => ({}));
+  const text = await res.text();
+  let result = {};
+  if (text) {
+    try {
+      result = JSON.parse(text);
+    } catch {
+      throw new Error(
+        res.ok
+          ? 'Server returned an unexpected response. Try again or contact support.'
+          : text.slice(0, 200) || `Request failed (${res.status})`
+      );
+    }
+  }
   if (!res.ok) {
-    throw new Error(result.error || 'Request failed');
+    const msg = result.error || `Request failed (${res.status})`;
+    if (/minus sign in JSON/i.test(msg)) {
+      throw new Error(
+        'The server could not accept photo uploads yet. Ask an admin to deploy the latest add-rider edge function and run the rider-kyc database migration.'
+      );
+    }
+    throw new Error(msg);
   }
   return result;
 }
