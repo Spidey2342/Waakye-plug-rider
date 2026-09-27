@@ -16,6 +16,11 @@ import {
 import { fetchAvailableOrders, acceptOrder, setRiderOnlineStatus, updateRiderLocation } from '../../lib/ordersApi';
 import { supabase } from '../../lib/supabase';
 import { distanceMeters } from '../../lib/mapService';
+import {
+  alertRiderNewOrders,
+  requestOrderNotificationPermission,
+  unlockOrderAlertAudio,
+} from '../../lib/orderAlerts';
 
 // A GPS fix worse than this (meters) is a network/IP-based guess, not a
 // real GPS reading — same threshold ActiveOrderScreen uses. We just skip
@@ -121,6 +126,9 @@ export function HomeScreen({ rider, onNavigate, onOrderAccepted }) {
   const [error, setError] = useState(null);
   const [riderPosition, setRiderPosition] = useState(null);
   const lastLocationSyncAtRef = useRef(0);
+  const knownOrderIdsRef = useRef(null);
+  const isOnlineRef = useRef(isOnline);
+  isOnlineRef.current = isOnline;
 
   // Live location while online. This previously didn't exist at all on
   // this screen — the rider's position was only ever read once a delivery
@@ -160,15 +168,26 @@ export function HomeScreen({ rider, onNavigate, onOrderAccepted }) {
     return () => navigator.geolocation.clearWatch(watchId);
   }, [isOnline, rider?.id]);
 
-  const loadOrders = useCallback(async () => {
-    setLoading(true);
+  const loadOrders = useCallback(async ({ silent = false } = {}) => {
+    if (!silent) setLoading(true);
     try {
       const data = await fetchAvailableOrders();
+      const prevIds = knownOrderIdsRef.current;
+      const nextIds = new Set(data.map((o) => o.id));
+
+      if (prevIds != null && isOnlineRef.current) {
+        const newlyAvailable = data.filter((o) => !prevIds.has(o.id));
+        if (newlyAvailable.length > 0) {
+          alertRiderNewOrders(newlyAvailable);
+        }
+      }
+
+      knownOrderIdsRef.current = nextIds;
       setOrders(data);
     } catch (err) {
       setError(err.message);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, []);
 
@@ -181,7 +200,7 @@ export function HomeScreen({ rider, onNavigate, onOrderAccepted }) {
     const channel = supabase
       .channel('available-orders')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, () => {
-        loadOrders();
+        loadOrders({ silent: true });
       })
       .subscribe();
 
@@ -198,9 +217,14 @@ export function HomeScreen({ rider, onNavigate, onOrderAccepted }) {
 
   async function toggleOnline() {
     const next = !isOnline;
+    if (next) {
+      unlockOrderAlertAudio();
+      void requestOrderNotificationPermission();
+    }
     setIsOnline(next);
     try {
       await setRiderOnlineStatus(rider.id, next);
+      if (!next) knownOrderIdsRef.current = null;
     } catch {
       setIsOnline(!next); // revert on failure
     }
