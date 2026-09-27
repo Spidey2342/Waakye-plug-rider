@@ -4,6 +4,14 @@ import { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { ChevronLeft, Phone, IdCard, Lock, CheckCircle2, Loader2, ArrowRight } from 'lucide-react';
 import { resetPin } from '../../lib/riderAuth';
+import {
+  formatGhanaCardInput,
+  isValidGhPhone,
+  isValidGhanaCard,
+  isWeakPin,
+  restrictPhoneInput,
+  restrictPinInput,
+} from '../../lib/formValidation';
 
 const fieldClassIcon =
   'w-full bg-white border border-gray-200 rounded-2xl pl-11 pr-4 py-4 text-sm outline-none shadow-sm transition-all focus:border-[#7a1d1d]/50 focus:shadow-[0_0_0_3px_rgba(122,29,29,0.08)]';
@@ -18,7 +26,8 @@ export function ForgotPinScreen({ onBack }) {
   const [done, setDone] = useState(false);
 
   const pinsMatch = newPin.length === 4 && newPin === confirmPin;
-  const canSubmit = phone.trim() && ghanaCard.trim() && pinsMatch;
+  const pinOk = pinsMatch && !isWeakPin(newPin);
+  const canSubmit = isValidGhPhone(phone) && isValidGhanaCard(ghanaCard) && pinOk;
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -79,7 +88,9 @@ export function ForgotPinScreen({ onBack }) {
             <input
               type="tel"
               value={phone}
-              onChange={(e) => setPhone(e.target.value)}
+              onChange={(e) => setPhone(restrictPhoneInput(e.target.value))}
+              inputMode="tel"
+              autoComplete="tel"
               placeholder="Phone Number"
               className={fieldClassIcon}
             />
@@ -89,7 +100,8 @@ export function ForgotPinScreen({ onBack }) {
             <IdCard className="w-4 h-4 text-gray-400 absolute left-4 top-1/2 -translate-y-1/2" />
             <input
               value={ghanaCard}
-              onChange={(e) => setGhanaCard(e.target.value)}
+              onChange={(e) => setGhanaCard(formatGhanaCardInput(e.target.value))}
+              autoComplete="off"
               placeholder="Ghana Card Number"
               className={fieldClassIcon}
             />
@@ -103,7 +115,7 @@ export function ForgotPinScreen({ onBack }) {
                 inputMode="numeric"
                 maxLength={4}
                 value={newPin}
-                onChange={(e) => setNewPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                onChange={(e) => setNewPin(restrictPinInput(e.target.value))}
                 placeholder="New PIN"
                 className={`${fieldClassIcon} tracking-[0.4em]`}
               />
@@ -115,7 +127,7 @@ export function ForgotPinScreen({ onBack }) {
                 inputMode="numeric"
                 maxLength={4}
                 value={confirmPin}
-                onChange={(e) => setConfirmPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                onChange={(e) => setConfirmPin(restrictPinInput(e.target.value))}
                 placeholder="Confirm PIN"
                 className={`${fieldClassIcon} tracking-[0.4em]`}
               />
@@ -123,6 +135,11 @@ export function ForgotPinScreen({ onBack }) {
           </div>
           {confirmPin.length === 4 && !pinsMatch && (
             <p className="text-xs text-red-500 font-medium px-1">PINs don't match</p>
+          )}
+          {pinsMatch && isWeakPin(newPin) && (
+            <p className="text-xs text-red-500 font-medium px-1">
+              Choose a stronger PIN — avoid repeats (1111) or sequences (1234).
+            </p>
           )}
 
           <AnimatePresence>

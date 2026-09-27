@@ -87,7 +87,14 @@ export function ProfileScreen({ rider, onNavigate, onLoggedOut }) {
             <InfoRow icon={Phone} label="Phone Number" value={phone} />
             <InfoRow icon={TransportIcon} label="Transport" value={transportLabel} />
             <InfoRow icon={MapPin} label="Home Area" value={rider?.home_area} />
-            <InfoRow icon={IdCard} label="Ghana Card" value={rider?.ghana_card_number} />
+            <InfoRow
+              icon={IdCard}
+              label="Ghana Card"
+              value={
+                rider?.ghana_card_number ||
+                (rider?.ghana_card_front_url ? 'On file (photo verification)' : null)
+              }
+            />
           </motion.div>
 
           {(rider?.emergency_contact_name || rider?.emergency_contact_phone) && (

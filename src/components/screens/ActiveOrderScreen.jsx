@@ -19,6 +19,7 @@ import { markPickedUp, markDelivered, updateRiderLocation } from '../../lib/orde
 import { geocodeAddress, getRoute, distanceMeters, speak, parseLatLng, resolveCustomerDropoff } from '../../lib/mapService';
 import { reportIssue } from '../../lib/issuesApi';
 import { SUPPORT_WHATSAPP_NUMBER } from '../../lib/constants';
+import { restrictNotesInput } from '../../lib/formValidation';
 
 const STAGES = ['Heading to Vendor', 'At Vendor', 'Heading to Customer', 'Delivered'];
 const ARRIVAL_THRESHOLD_M = 100;
@@ -669,8 +670,9 @@ export function ActiveOrderScreen({ order: initialOrder, riderId, onDelivered, o
                   </p>
                   <textarea
                     value={issueText}
-                    onChange={(e) => setIssueText(e.target.value)}
+                    onChange={(e) => setIssueText(restrictNotesInput(e.target.value, 1000))}
                     placeholder="Describe the issue..."
+                    maxLength={1000}
                     rows={4}
                     className="w-full bg-[#faf6ee] border border-gray-200 rounded-xl p-3 text-sm outline-none resize-none mb-4 focus:border-[#7a1d1d]/50"
                   />

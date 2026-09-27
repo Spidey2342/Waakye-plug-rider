@@ -12,6 +12,7 @@ import { isPastAccraCutoff, shouldLockForSettlement } from './lib/settlementLock
 import { fetchCommissionOwed } from './lib/earningsApi';
 import { getCurrentRider } from './lib/riderAuth';
 import { fetchActiveOrderForRider } from './lib/ordersApi';
+import { submitRiderApplication } from './lib/submitRider';
 
 function PlaceholderScreen({ title, onBack }) {
   return (
@@ -106,35 +107,12 @@ function App() {
 
   async function handleAddRider(formData) {
     setSubmitError(null);
-    const res = await fetch(
-      `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/add-rider`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
-        },
-        body: JSON.stringify({
-          full_name: formData.full_name,
-          phone: formData.phone,
-          pin: formData.pin,
-          photo_url: null,
-          transport_type: formData.transport_type,
-          ghana_card_number: formData.ghana_card_number,
-          home_area: formData.home_area,
-          emergency_contact_name: formData.emergency_contact_name,
-          emergency_contact_phone: formData.emergency_contact_phone,
-          deposit_amount: formData.deposit_amount || 0,
-        }),
-      }
-    );
-
-    const result = await res.json();
-
-    if (!res.ok) {
-      const errorMsg = `Failed to add rider: ${result.error || 'Unknown error'}`;
+    try {
+      await submitRiderApplication(formData, { isSelfApply: false });
+    } catch (err) {
+      const errorMsg = `Failed to add rider: ${err.message || 'Unknown error'}`;
       setSubmitError(errorMsg);
-      throw new Error(result.error || 'Failed to add rider');
+      throw err;
     }
 
     setSuccessMessage(`${formData.full_name} was added successfully.`);
@@ -144,35 +122,12 @@ function App() {
 
   async function handleApply(formData) {
     setSubmitError(null);
-    const res = await fetch(
-      `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/add-rider`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
-        },
-        body: JSON.stringify({
-          full_name: formData.full_name,
-          phone: formData.phone,
-          pin: formData.pin,
-          photo_url: null,
-          transport_type: formData.transport_type,
-          ghana_card_number: formData.ghana_card_number,
-          home_area: formData.home_area,
-          emergency_contact_name: formData.emergency_contact_name,
-          emergency_contact_phone: formData.emergency_contact_phone,
-          is_self_apply: true,
-        }),
-      }
-    );
-
-    const result = await res.json();
-
-    if (!res.ok) {
-      const errorMsg = `Could not submit application: ${result.error || 'Unknown error'}`;
+    try {
+      await submitRiderApplication(formData, { isSelfApply: true });
+    } catch (err) {
+      const errorMsg = `Could not submit application: ${err.message || 'Unknown error'}`;
       setSubmitError(errorMsg);
-      throw new Error(result.error || 'Could not submit application');
+      throw err;
     }
 
     setSuccessMessage(`Thanks, ${formData.full_name}! We'll review your application and reach out soon.`);

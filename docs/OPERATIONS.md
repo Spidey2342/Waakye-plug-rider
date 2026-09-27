@@ -35,6 +35,8 @@ Performed in the **admin panel** (waakyeplug-vendor), which calls rider-repo edg
 
 Self-apply from the rider app creates a **pending** rider who cannot log in until approved (`getCurrentRider` requires `is_approved`).
 
+Pending applications include **selfie + Ghana Card front/back** URLs (`photo_url`, `ghana_card_front_url`, `ghana_card_back_url`). The admin panel **Riders** tab shows these under **ID verification** before Approve/Decline (requires DB migration `20260926_rider_kyc_photos.sql` and redeployed `add-rider`).
+
 ## Support
 
 - In-app Chat Support (Active Order) opens WhatsApp to **`233599995651`** — **TODO: confirm this is the real support line** before launch comms.

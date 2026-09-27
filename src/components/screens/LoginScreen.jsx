@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Bike, Phone, Lock, Eye, EyeOff, ArrowRight, Loader2 } from 'lucide-react';
 import { riderLogin } from '../../lib/riderAuth';
+import { isValidGhPhone, restrictPhoneInput, restrictPinInput } from '../../lib/formValidation';
 
 export function LoginScreen({ onSuccess, onForgotPin, onApply }) {
   const [phone, setPhone] = useState('');
@@ -29,7 +30,7 @@ export function LoginScreen({ onSuccess, onForgotPin, onApply }) {
     }
   }
 
-  const canSubmit = phone.trim().length > 0 && pin.length === 4;
+  const canSubmit = isValidGhPhone(phone) && pin.length === 4;
 
   return (
     <div className="min-h-[100dvh] bg-[#fefaf4] flex flex-col items-center justify-center px-6 [webkit-tap-highlight-color:transparent]">
@@ -72,7 +73,9 @@ export function LoginScreen({ onSuccess, onForgotPin, onApply }) {
             <input
               type="tel"
               value={phone}
-              onChange={(e) => setPhone(e.target.value)}
+              onChange={(e) => setPhone(restrictPhoneInput(e.target.value))}
+              inputMode="tel"
+              autoComplete="tel"
               placeholder="Phone Number"
               className="w-full bg-white border border-gray-200 rounded-2xl pl-11 pr-4 py-4 text-sm outline-none shadow-sm transition-all focus:border-[#7a1d1d]/50 focus:shadow-[0_0_0_3px_rgba(122,29,29,0.08)]"
             />
@@ -85,7 +88,7 @@ export function LoginScreen({ onSuccess, onForgotPin, onApply }) {
               inputMode="numeric"
               maxLength={4}
               value={pin}
-              onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
+              onChange={(e) => setPin(restrictPinInput(e.target.value))}
               placeholder="4-Digit PIN"
               className="w-full bg-white border border-gray-200 rounded-2xl pl-11 pr-11 py-4 text-sm outline-none shadow-sm tracking-[0.4em] transition-all focus:border-[#7a1d1d]/50 focus:shadow-[0_0_0_3px_rgba(122,29,29,0.08)]"
             />

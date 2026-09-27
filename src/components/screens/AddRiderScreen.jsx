@@ -10,7 +10,6 @@ import {
   Plus,
   User,
   Phone,
-  IdCard,
   MapPin,
   StickyNote,
   ArrowRight,
@@ -19,8 +18,17 @@ import {
   Lock,
   X,
 } from 'lucide-react';
+import {
+  isValidGhPhone,
+  isWeakPin,
+  restrictNotesInput,
+  restrictPersonNameInput,
+  restrictPhoneInput,
+  restrictPinInput,
+} from '../../lib/formValidation';
+import { loadFilePreview, readPickedImageFile } from '../../lib/imagePick';
 
-const STEPS = ['Identity', 'Work Details', 'Emergency Contact', 'Almost Done'];
+const STEPS = ['Your Details', 'ID Verification', 'Work Details', 'Emergency Contact', 'Almost Done'];
 
 const TRANSPORT_OPTIONS = [
   { key: 'motorbike', label: 'Motorbike', icon: Bike },
@@ -43,21 +51,67 @@ const slideVariants = {
   exit: (direction) => ({ x: direction > 0 ? -40 : 40, opacity: 0 }),
 };
 
+function PhotoCaptureTile({ label, hint, preview, capture, onPick, onError }) {
+  return (
+    <div className="flex flex-col items-center">
+      <label className="w-full aspect-[4/3] max-h-36 rounded-2xl border-2 border-dashed border-gray-300 bg-[#faf6ee] flex flex-col items-center justify-center gap-1 overflow-hidden cursor-pointer active:scale-[0.98] transition-transform relative">
+        {preview ? (
+          <img src={preview} className="w-full h-full object-cover" alt={label} />
+        ) : (
+          <>
+            <Camera className="w-7 h-7 text-gray-400" />
+            <span className="text-[10px] font-bold text-gray-500 uppercase text-center px-2">{label}</span>
+          </>
+        )}
+        <input
+          type="file"
+          accept="image/*"
+          capture={capture}
+          onChange={async (e) => {
+            try {
+              const file = readPickedImageFile(e.target);
+              if (!file) return;
+              const url = await loadFilePreview(file);
+              onPick(file, url);
+            } catch (err) {
+              onError(err.message || 'Could not use that photo.');
+              e.target.value = '';
+            }
+          }}
+          className="hidden"
+        />
+        {!preview && (
+          <span className="absolute bottom-2 right-2 w-7 h-7 rounded-full bg-[#7a1d1d] flex items-center justify-center shadow-md pointer-events-none">
+            <Plus className="w-4 h-4 text-white" />
+          </span>
+        )}
+      </label>
+      {hint && <p className="text-[10px] text-gray-400 text-center mt-1.5 leading-snug px-1">{hint}</p>}
+    </div>
+  );
+}
+
 export function AddRiderScreen({ onBack, onSubmit, mode = 'admin', error, onErrorDismiss }) {
   const isApply = mode === 'apply';
 
   const [stepIndex, setStepIndex] = useState(0);
   const [direction, setDirection] = useState(1);
   const [submitting, setSubmitting] = useState(false);
-  const [photoPreview, setPhotoPreview] = useState(null);
+  const [pickError, setPickError] = useState(null);
+  const [previews, setPreviews] = useState({
+    selfie: null,
+    ghana_card_front: null,
+    ghana_card_back: null,
+  });
 
   const [form, setForm] = useState({
     full_name: '',
     phone: '',
-    ghana_card_number: '',
     pin: '',
     confirm_pin: '',
-    photo: null,
+    selfie: null,
+    ghana_card_front: null,
+    ghana_card_back: null,
     transport_type: 'motorbike',
     home_area: '',
     emergency_contact_name: '',
@@ -73,26 +127,35 @@ export function AddRiderScreen({ onBack, onSubmit, mode = 'admin', error, onErro
     setForm((prev) => ({ ...prev, [key]: value }));
   }
 
-  function handlePhotoPick(e) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    update('photo', file);
-    const reader = new FileReader();
-    reader.onload = () => setPhotoPreview(reader.result);
-    reader.readAsDataURL(file);
+  function setKycPhoto(field, file, previewUrl) {
+    setPickError(null);
+    update(field, file);
+    setPreviews((p) => ({ ...p, [field]: previewUrl }));
   }
 
   function isStepValid() {
     if (stepIndex === 0) {
       return (
-        form.full_name.trim() &&
-        form.phone.trim() &&
-        form.ghana_card_number.trim() &&
+        form.full_name.trim().length >= 2 &&
+        isValidGhPhone(form.phone) &&
         form.pin.length === 4 &&
-        form.pin === form.confirm_pin
+        form.pin === form.confirm_pin &&
+        !isWeakPin(form.pin)
       );
     }
-    if (stepIndex === 1) return form.home_area.trim();
+    if (stepIndex === 1) {
+      return form.selfie && form.ghana_card_front && form.ghana_card_back;
+    }
+    if (stepIndex === 2) return form.home_area.trim().length >= 2;
+    if (stepIndex === 3) {
+      const ecPhone = form.emergency_contact_phone.trim();
+      if (ecPhone && !isValidGhPhone(ecPhone)) return false;
+      return true;
+    }
+    if (!isApply && stepIndex === 4) {
+      const amt = form.deposit_amount;
+      if (amt !== '' && (Number.isNaN(Number(amt)) || Number(amt) < 0)) return false;
+    }
     return true;
   }
 
@@ -182,36 +245,13 @@ export function AddRiderScreen({ onBack, onSubmit, mode = 'admin', error, onErro
             >
               {stepIndex === 0 && (
                 <>
-                  <div className="flex justify-center mb-2">
-                    <div className="relative">
-                      <label className="w-24 h-24 rounded-2xl border-2 border-dashed border-gray-300 bg-[#faf6ee] flex flex-col items-center justify-center gap-1 overflow-hidden cursor-pointer active:scale-95 transition-transform">
-                        {photoPreview ? (
-                          <img src={photoPreview} className="w-full h-full object-cover" alt="Rider" />
-                        ) : (
-                          <>
-                            <Camera className="w-6 h-6 text-gray-400" />
-                            <span className="text-[10px] font-bold text-gray-400 uppercase">Photo</span>
-                          </>
-                        )}
-                        <input type="file" accept="image/*" onChange={handlePhotoPick} className="hidden" />
-                      </label>
-                      <motion.div
-                        animate={{ scale: [1, 1.12, 1] }}
-                        transition={{ duration: 1.8, repeat: Infinity, ease: 'easeInOut' }}
-                        className="absolute -bottom-1.5 -right-1.5 w-7 h-7 rounded-full bg-[#7a1d1d] flex items-center justify-center shadow-md pointer-events-none"
-                      >
-                        <Plus className="w-4 h-4 text-white" />
-                      </motion.div>
-                    </div>
-                  </div>
-
                   <div>
                     <FieldLabel>Full Name</FieldLabel>
                     <div className="relative">
                       <User className="w-4 h-4 text-gray-400 absolute left-4 top-1/2 -translate-y-1/2" />
                       <input
                         value={form.full_name}
-                        onChange={(e) => update('full_name', e.target.value)}
+                        onChange={(e) => update('full_name', restrictPersonNameInput(e.target.value))}
                         placeholder="John Doe"
                         className={fieldClassIcon}
                       />
@@ -224,25 +264,14 @@ export function AddRiderScreen({ onBack, onSubmit, mode = 'admin', error, onErro
                       <Phone className="w-4 h-4 text-gray-400 absolute left-4 top-1/2 -translate-y-1/2" />
                       <input
                         value={form.phone}
-                        onChange={(e) => update('phone', e.target.value)}
+                        onChange={(e) => update('phone', restrictPhoneInput(e.target.value))}
+                        inputMode="tel"
+                        autoComplete="tel"
                         placeholder="024 XXX XXXX"
                         className={fieldClassIcon}
                       />
                     </div>
                     <p className="text-[11px] text-gray-400 italic mt-1">* Must match Mobile Money account name</p>
-                  </div>
-
-                  <div>
-                    <FieldLabel>Ghana Card Number</FieldLabel>
-                    <div className="relative">
-                      <IdCard className="w-4 h-4 text-gray-400 absolute left-4 top-1/2 -translate-y-1/2" />
-                      <input
-                        value={form.ghana_card_number}
-                        onChange={(e) => update('ghana_card_number', e.target.value)}
-                        placeholder="GHA-123456789-0"
-                        className={fieldClassIcon}
-                      />
-                    </div>
                   </div>
 
                   <div className="pt-2 border-t border-gray-100">
@@ -259,7 +288,7 @@ export function AddRiderScreen({ onBack, onSubmit, mode = 'admin', error, onErro
                             inputMode="numeric"
                             maxLength={4}
                             value={form.pin}
-                            onChange={(e) => update('pin', e.target.value.replace(/\D/g, '').slice(0, 4))}
+                            onChange={(e) => update('pin', restrictPinInput(e.target.value))}
                             placeholder="••••"
                             className={`${fieldClassIcon} tracking-[0.4em]`}
                           />
@@ -272,7 +301,7 @@ export function AddRiderScreen({ onBack, onSubmit, mode = 'admin', error, onErro
                           inputMode="numeric"
                           maxLength={4}
                           value={form.confirm_pin}
-                          onChange={(e) => update('confirm_pin', e.target.value.replace(/\D/g, '').slice(0, 4))}
+                          onChange={(e) => update('confirm_pin', restrictPinInput(e.target.value))}
                           placeholder="••••"
                           className={`${fieldClass} tracking-[0.4em]`}
                         />
@@ -280,6 +309,11 @@ export function AddRiderScreen({ onBack, onSubmit, mode = 'admin', error, onErro
                     </div>
                     {form.confirm_pin.length === 4 && form.pin !== form.confirm_pin && (
                       <p className="text-[11px] text-red-500 font-medium mt-1.5">PINs don't match</p>
+                    )}
+                    {form.pin.length === 4 && form.confirm_pin.length === 4 && form.pin === form.confirm_pin && isWeakPin(form.pin) && (
+                      <p className="text-[11px] text-red-500 font-medium mt-1.5">
+                        Choose a stronger PIN — avoid repeats (1111) or sequences (1234).
+                      </p>
                     )}
                     {isApply && (
                       <p className="text-[11px] text-gray-400 mt-1.5">
@@ -291,6 +325,48 @@ export function AddRiderScreen({ onBack, onSubmit, mode = 'admin', error, onErro
               )}
 
               {stepIndex === 1 && (
+                <>
+                  <div>
+                    <p className="font-bold text-base mb-1">Verify your identity</p>
+                    <p className="text-xs text-gray-500 mb-4 leading-relaxed">
+                      Take a clear selfie and photos of the front and back of your Ghana Card. Make sure details are readable and glare-free.
+                    </p>
+                    <div className="grid grid-cols-1 gap-3">
+                      <PhotoCaptureTile
+                        label="Selfie"
+                        hint="Face the camera, good lighting"
+                        preview={previews.selfie}
+                        capture="user"
+                        onPick={(file, url) => setKycPhoto('selfie', file, url)}
+                        onError={setPickError}
+                      />
+                      <div className="grid grid-cols-2 gap-3">
+                        <PhotoCaptureTile
+                          label="Card front"
+                          hint="All corners visible"
+                          preview={previews.ghana_card_front}
+                          capture="environment"
+                          onPick={(file, url) => setKycPhoto('ghana_card_front', file, url)}
+                          onError={setPickError}
+                        />
+                        <PhotoCaptureTile
+                          label="Card back"
+                          hint="All corners visible"
+                          preview={previews.ghana_card_back}
+                          capture="environment"
+                          onPick={(file, url) => setKycPhoto('ghana_card_back', file, url)}
+                          onError={setPickError}
+                        />
+                      </div>
+                    </div>
+                    {pickError && (
+                      <p className="text-[11px] text-red-500 font-medium mt-2">{pickError}</p>
+                    )}
+                  </div>
+                </>
+              )}
+
+              {stepIndex === 2 && (
                 <>
                   <div>
                     <FieldLabel>Transport Type</FieldLabel>
@@ -337,13 +413,13 @@ export function AddRiderScreen({ onBack, onSubmit, mode = 'admin', error, onErro
                 </>
               )}
 
-              {stepIndex === 2 && (
+              {stepIndex === 3 && (
                 <>
                   <div>
                     <FieldLabel>Contact Name</FieldLabel>
                     <input
                       value={form.emergency_contact_name}
-                      onChange={(e) => update('emergency_contact_name', e.target.value)}
+                      onChange={(e) => update('emergency_contact_name', restrictPersonNameInput(e.target.value))}
                       placeholder="Full Name"
                       className={fieldClass}
                     />
@@ -353,7 +429,8 @@ export function AddRiderScreen({ onBack, onSubmit, mode = 'admin', error, onErro
                       <FieldLabel>Phone Number</FieldLabel>
                       <input
                         value={form.emergency_contact_phone}
-                        onChange={(e) => update('emergency_contact_phone', e.target.value)}
+                        onChange={(e) => update('emergency_contact_phone', restrictPhoneInput(e.target.value))}
+                        inputMode="tel"
                         placeholder="024 XXX XXXX"
                         className={fieldClass}
                       />
@@ -362,7 +439,7 @@ export function AddRiderScreen({ onBack, onSubmit, mode = 'admin', error, onErro
                       <FieldLabel>Relationship</FieldLabel>
                       <input
                         value={form.emergency_contact_relationship}
-                        onChange={(e) => update('emergency_contact_relationship', e.target.value)}
+                        onChange={(e) => update('emergency_contact_relationship', restrictPersonNameInput(e.target.value))}
                         placeholder="Brother"
                         className={fieldClass}
                       />
@@ -371,7 +448,7 @@ export function AddRiderScreen({ onBack, onSubmit, mode = 'admin', error, onErro
                 </>
               )}
 
-              {stepIndex === 3 && (
+              {stepIndex === 4 && (
                 isApply ? (
                   <>
                     <div className="text-center pb-2">
@@ -386,8 +463,9 @@ export function AddRiderScreen({ onBack, onSubmit, mode = 'admin', error, onErro
                         <StickyNote className="w-4 h-4 text-gray-400 absolute left-4 top-4" />
                         <textarea
                           value={form.notes}
-                          onChange={(e) => update('notes', e.target.value)}
+                          onChange={(e) => update('notes', restrictNotesInput(e.target.value))}
                           placeholder="e.g. availability, experience..."
+                          maxLength={500}
                           rows={4}
                           className={`${fieldClassIcon} resize-none`}
                         />
@@ -404,7 +482,15 @@ export function AddRiderScreen({ onBack, onSubmit, mode = 'admin', error, onErro
                           <input
                             type="number"
                             value={form.deposit_amount}
-                            onChange={(e) => update('deposit_amount', e.target.value)}
+                            onChange={(e) => {
+                              const v = e.target.value.replace(/[^\d.]/g, '');
+                              const parts = v.split('.');
+                              const normalized =
+                                parts.length <= 1 ? parts[0] : `${parts[0]}.${parts.slice(1).join('').slice(0, 2)}`;
+                              update('deposit_amount', normalized);
+                            }}
+                            min="0"
+                            step="0.01"
                             placeholder="200.00"
                             className="w-full bg-[#faf6ee] border border-gray-200 rounded-xl pl-11 pr-3 py-3 text-sm outline-none transition-all focus:border-[#7a1d1d]/50 focus:bg-white focus:shadow-[0_0_0_3px_rgba(122,29,29,0.08)]"
                           />
@@ -427,8 +513,9 @@ export function AddRiderScreen({ onBack, onSubmit, mode = 'admin', error, onErro
                         <StickyNote className="w-4 h-4 text-gray-400 absolute left-4 top-4" />
                         <textarea
                           value={form.notes}
-                          onChange={(e) => update('notes', e.target.value)}
+                          onChange={(e) => update('notes', restrictNotesInput(e.target.value))}
                           placeholder="Any additional remarks..."
+                          maxLength={500}
                           rows={3}
                           className={`${fieldClassIcon} resize-none`}
                         />
@@ -506,7 +593,7 @@ export function AddRiderScreen({ onBack, onSubmit, mode = 'admin', error, onErro
             <motion.button
               type="button"
               onClick={handleSubmit}
-              disabled={submitting}
+              disabled={submitting || !isStepValid()}
               whileTap={{ scale: 0.98 }}
               className="flex-1 bg-[#7a1d1d] text-white py-4 rounded-2xl font-bold text-base flex items-center justify-center gap-2 disabled:opacity-70"
             >
