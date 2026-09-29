@@ -90,6 +90,34 @@ function distanceToPolylineMeters(point, coordinates) {
   return min;
 }
 
+function formatDeliveryDigits(code) {
+  if (code == null || code === '') return '';
+  const digits = String(code).replace(/\D/g, '');
+  if (!digits) return '';
+  return digits.slice(-4).padStart(4, '0');
+}
+
+function DeliveryDigitRow({ code, size = 'lg' }) {
+  const formatted = formatDeliveryDigits(code);
+  if (!formatted) return null;
+  const box =
+    size === 'lg'
+      ? 'w-12 h-14 text-3xl rounded-xl'
+      : 'w-9 h-10 text-xl rounded-lg';
+  return (
+    <div className="flex justify-center gap-2">
+      {formatted.split('').map((digit, i) => (
+        <span
+          key={`${digit}-${i}`}
+          className={`${box} inline-flex items-center justify-center font-mono font-bold tabular-nums bg-white border-2 border-[#7a1d1d]/25 text-[#7a1d1d] shadow-sm`}
+        >
+          {digit}
+        </span>
+      ))}
+    </div>
+  );
+}
+
 export function ActiveOrderScreen({ order: initialOrder, riderId, onDelivered, onBack }) {
   const mapRef = useRef(null);
   const mapContainerRef = useRef(null);
@@ -403,9 +431,9 @@ export function ActiveOrderScreen({ order: initialOrder, riderId, onDelivered, o
   }, [order.id]);
 
   const handleConfirmDelivered = useCallback(async () => {
-    const code = deliveryCodeInput.trim();
-    if (!/^\d{4}$/.test(code)) {
-      setMapError('Enter the 4-digit code the customer shows you.');
+    const code = formatDeliveryDigits(deliveryCodeInput);
+    if (code.length !== 4) {
+      setMapError('Enter all 4 numbers the customer shows you.');
       return;
     }
 
@@ -415,7 +443,7 @@ export function ActiveOrderScreen({ order: initialOrder, riderId, onDelivered, o
       if (order.delivery_code_hash) {
         const result = await verifyDelivery(order.id, code);
         updated = result.order ?? result;
-      } else if (order.delivery_code && code !== order.delivery_code) {
+      } else if (order.delivery_code && code !== formatDeliveryDigits(order.delivery_code)) {
         throw new Error('Code does not match this order. Ask the customer to open their order in Waakye Plug.');
       } else {
         updated = await markDelivered(order.id);
@@ -571,9 +599,7 @@ export function ActiveOrderScreen({ order: initialOrder, riderId, onDelivered, o
             <p className="text-[10px] font-bold uppercase tracking-wide text-gray-500 mb-1">
               Customer delivery code
             </p>
-            <p className="font-mono text-3xl font-bold tracking-[0.3em] text-[#7a1d1d] tabular-nums">
-              {order.delivery_code}
-            </p>
+            <DeliveryDigitRow code={order.delivery_code} size="lg" />
             <p className="text-xs text-gray-500 mt-2">
               {order.status === 'picked_up'
                 ? 'Ask the customer to show this same code before you hand over the food.'
@@ -645,12 +671,15 @@ export function ActiveOrderScreen({ order: initialOrder, riderId, onDelivered, o
               className="bg-white rounded-t-3xl w-full max-w-md p-6 pb-[calc(env(safe-area-inset-bottom)+24px)]"
             >
               <p className="font-bold text-lg mb-1">Confirm delivery</p>
-              <p className="text-sm text-gray-500 mb-4">
-                Ask the customer for their <span className="font-bold text-gray-900">4-digit delivery code</span>, then enter it below.
-                {order.delivery_code ? (
-                  <> Expected: <span className="font-mono font-bold text-[#7a1d1d]">{order.delivery_code}</span>.</>
-                ) : null}
+              <p className="text-sm text-gray-500 mb-3">
+                Ask the customer for their <span className="font-bold text-gray-900">4 numbers</span>, then type them below.
               </p>
+              {order.delivery_code ? (
+                <div className="mb-4">
+                  <p className="text-[10px] font-bold uppercase text-gray-400 mb-2 text-center">Your code for this order</p>
+                  <DeliveryDigitRow code={order.delivery_code} size="sm" />
+                </div>
+              ) : null}
               <input
                 type="text"
                 inputMode="numeric"
@@ -658,8 +687,8 @@ export function ActiveOrderScreen({ order: initialOrder, riderId, onDelivered, o
                 maxLength={4}
                 value={deliveryCodeInput}
                 onChange={(e) => setDeliveryCodeInput(e.target.value.replace(/\D/g, '').slice(0, 4))}
-                placeholder="0000"
-                className="w-full text-center font-mono text-3xl tracking-[0.4em] border-2 border-gray-200 rounded-2xl py-4 mb-4 outline-none focus:border-[#7a1d1d]"
+                placeholder="• • • •"
+                className="w-full text-center font-mono text-4xl tracking-[0.5em] border-2 border-gray-200 rounded-2xl py-4 mb-4 outline-none focus:border-[#7a1d1d] tabular-nums"
                 autoComplete="one-time-code"
               />
               <p className="text-xs text-gray-500 mb-5">
