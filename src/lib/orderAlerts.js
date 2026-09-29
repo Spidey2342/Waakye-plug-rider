@@ -1,61 +1,105 @@
 /** Path under `public/` — served as /new-order-alert.mp3 */
 export const NEW_ORDER_ALERT_SRC = '/new-order-alert.mp3';
 
-/** @type {HTMLAudioElement | null} */
-let alertAudio = null;
+let audioPrimed = false;
+/** @type {AudioContext | null} */
+let sharedAudioCtx = null;
 
-/** Call after a user gesture (e.g. Go Online) so mobile browsers allow sound. */
+export function isOrderAlertAudioReady() {
+  return audioPrimed;
+}
+
+function getAudioContext() {
+  if (typeof window === 'undefined') return null;
+  const Ctx = window.AudioContext || window.webkitAudioContext;
+  if (!Ctx) return null;
+  if (!sharedAudioCtx) sharedAudioCtx = new Ctx();
+  return sharedAudioCtx;
+}
+
+/**
+ * Must run synchronously inside a user gesture (tap Log In, Go Online, Enable sound).
+ * Async work after this breaks autoplay on iOS / Chrome.
+ */
 export function unlockOrderAlertAudio() {
-  if (typeof window === 'undefined') return;
-  if (!alertAudio) {
-    alertAudio = new Audio(NEW_ORDER_ALERT_SRC);
-    alertAudio.preload = 'auto';
+  if (typeof window === 'undefined') return Promise.resolve(false);
+
+  const ctx = getAudioContext();
+  if (ctx?.state === 'suspended') {
+    void ctx.resume();
   }
-  // Prime playback on user gesture (required on iOS / Chrome).
-  alertAudio.load();
-  const playPromise = alertAudio.play();
-  if (playPromise) {
-    playPromise
-      .then(() => {
-        alertAudio.pause();
-        alertAudio.currentTime = 0;
-      })
-      .catch(() => {});
-  }
+
+  const audio = new Audio(NEW_ORDER_ALERT_SRC);
+  audio.preload = 'auto';
+  audio.volume = 1;
+
+  return audio
+    .play()
+    .then(() => {
+      audio.pause();
+      audio.currentTime = 0;
+      audioPrimed = true;
+      return true;
+    })
+    .catch(() => {
+      audioPrimed = false;
+      return false;
+    });
 }
 
 export function playNewOrderSound() {
   if (typeof window === 'undefined') return;
-  if (!alertAudio) {
-    alertAudio = new Audio(NEW_ORDER_ALERT_SRC);
-    alertAudio.preload = 'auto';
+
+  if (typeof navigator !== 'undefined' && navigator.vibrate) {
+    navigator.vibrate([200, 100, 200, 100, 400]);
   }
-  alertAudio.currentTime = 0;
-  const playPromise = alertAudio.play();
-  if (playPromise) {
-    playPromise.catch(() => {
-      // Fallback if autoplay still blocked — silent beep via Web Audio.
-      playFallbackBeep();
-    });
+
+  const audio = new Audio(NEW_ORDER_ALERT_SRC);
+  audio.volume = 1;
+  audio.currentTime = 0;
+
+  const playPromise = audio.play();
+  if (!playPromise) {
+    playFallbackBeep();
+    return;
   }
+
+  playPromise.catch(() => {
+    playFallbackBeep();
+  });
 }
 
 function playFallbackBeep() {
-  const Ctx = window.AudioContext || window.webkitAudioContext;
-  if (!Ctx) return;
-  const ctx = new Ctx();
-  const now = ctx.currentTime;
-  const osc = ctx.createOscillator();
-  const gain = ctx.createGain();
-  osc.type = 'sine';
-  osc.frequency.value = 880;
-  gain.gain.setValueAtTime(0.15, now);
-  gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.25);
-  osc.connect(gain);
-  gain.connect(ctx.destination);
-  osc.start(now);
-  osc.stop(now + 0.3);
-  void ctx.close();
+  const ctx = getAudioContext();
+  if (!ctx) return;
+
+  const start = () => {
+    const now = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.value = 880;
+    gain.gain.setValueAtTime(0.2, now);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.35);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(now);
+    osc.stop(now + 0.4);
+  };
+
+  if (ctx.state === 'suspended') {
+    void ctx.resume().then(start).catch(() => {});
+  } else {
+    start();
+  }
+}
+
+/** Play once so the rider can confirm alerts work (call from a button tap). */
+export function testOrderAlertSound() {
+  return unlockOrderAlertAudio().then((ok) => {
+    playNewOrderSound();
+    return ok || audioPrimed;
+  });
 }
 
 export async function requestOrderNotificationPermission() {

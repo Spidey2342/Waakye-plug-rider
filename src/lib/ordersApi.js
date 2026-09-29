@@ -1,9 +1,9 @@
 import { supabase } from './supabase';
 
-// Order selects use `*` so delivery_lat / delivery_lng (customer pin coords
-// written by the customer app at checkout) are included once those columns
-// exist in production. Older orders without them leave the fields undefined
-// — ActiveOrderScreen falls back to Nominatim geocode of delivery_address.
+// Order selects use `*` so checkout data rides along: `items` (JSON line list
+// from the customer app), delivery_lat / delivery_lng, payment_method, etc.
+// Older orders may omit some fields — ActiveOrderScreen falls back to
+// Nominatim geocode of delivery_address when pin coords are missing.
 // Do not list delivery_lat/lng explicitly: missing columns would break the
 // whole select before the customer-app migration lands.
 

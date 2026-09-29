@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Bike, Phone, Lock, Eye, EyeOff, ArrowRight, Loader2 } from 'lucide-react';
 import { riderLogin } from '../../lib/riderAuth';
 import { isValidGhPhone, restrictPhoneInput, restrictPinInput } from '../../lib/formValidation';
+import { unlockOrderAlertAudio } from '../../lib/orderAlerts';
 
 export function LoginScreen({ onSuccess, onForgotPin, onApply }) {
   const [phone, setPhone] = useState('');
@@ -16,6 +17,8 @@ export function LoginScreen({ onSuccess, onForgotPin, onApply }) {
 
   async function handleSubmit(e) {
     e.preventDefault();
+    // Same tap as Log In — required before any await or mobile blocks alert audio later.
+    void unlockOrderAlertAudio();
     setError(null);
     setLoading(true);
     try {

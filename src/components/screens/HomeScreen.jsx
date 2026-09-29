@@ -18,9 +18,12 @@ import { supabase } from '../../lib/supabase';
 import { distanceMeters } from '../../lib/mapService';
 import {
   alertRiderNewOrders,
+  isOrderAlertAudioReady,
   requestOrderNotificationPermission,
+  testOrderAlertSound,
   unlockOrderAlertAudio,
 } from '../../lib/orderAlerts';
+import { OrderItemsList } from '../OrderItemsList';
 
 // A GPS fix worse than this (meters) is a network/IP-based guess, not a
 // real GPS reading — same threshold ActiveOrderScreen uses. We just skip
@@ -81,6 +84,10 @@ function OrderCard({ order, index, onAccept, accepting, riderPosition }) {
         </span>
       </div>
 
+      <div className="border-t border-gray-100 pt-3 mb-3">
+        <OrderItemsList order={order} title="Customer ordered" compact maxLines={4} />
+      </div>
+
       <div className="grid grid-cols-3 gap-2 border-t border-gray-100 pt-3 mb-4">
         <div>
           <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wide">Food Cost</p>
@@ -124,6 +131,7 @@ export function HomeScreen({ rider, onNavigate, onOrderAccepted }) {
   const [isOnline, setIsOnline] = useState(rider?.is_online ?? false);
   const [accepting, setAccepting] = useState(null);
   const [error, setError] = useState(null);
+  const [soundReady, setSoundReady] = useState(() => isOrderAlertAudioReady());
   const [riderPosition, setRiderPosition] = useState(null);
   const lastLocationSyncAtRef = useRef(0);
   const knownOrderIdsRef = useRef(null);
@@ -207,19 +215,26 @@ export function HomeScreen({ rider, onNavigate, onOrderAccepted }) {
     // Kept as a fallback safety net in case the realtime connection ever
     // drops silently (e.g. brief network loss) — cheap insurance, not the
     // primary update mechanism anymore.
-    const interval = setInterval(loadOrders, 30000);
-
     return () => {
       supabase.removeChannel(channel);
-      clearInterval(interval);
     };
   }, [loadOrders]);
+
+  useEffect(() => {
+    const ms = isOnline ? 10000 : 30000;
+    const interval = setInterval(() => loadOrders({ silent: true }), ms);
+    return () => clearInterval(interval);
+  }, [isOnline, loadOrders]);
+
+  function enableSoundAlerts() {
+    void unlockOrderAlertAudio().then((ok) => setSoundReady(ok || isOrderAlertAudioReady()));
+    void requestOrderNotificationPermission();
+  }
 
   async function toggleOnline() {
     const next = !isOnline;
     if (next) {
-      unlockOrderAlertAudio();
-      void requestOrderNotificationPermission();
+      enableSoundAlerts();
     }
     setIsOnline(next);
     try {
@@ -311,6 +326,21 @@ export function HomeScreen({ rider, onNavigate, onOrderAccepted }) {
               </motion.span>
             </AnimatePresence>
           </motion.div>
+
+          {isOnline && !soundReady && (
+            <button
+              type="button"
+              onClick={() => {
+                void testOrderAlertSound().then((ok) => setSoundReady(ok));
+              }}
+              className="w-full mb-4 text-left bg-amber-50 border border-amber-200 rounded-2xl px-4 py-3 active:scale-[0.99] transition-transform"
+            >
+              <p className="text-sm font-bold text-amber-900">Tap to enable order alert sound</p>
+              <p className="text-xs text-amber-800/80 mt-0.5">
+                Required once per session on your phone — you should hear a short alarm.
+              </p>
+            </button>
+          )}
 
           {error && (
             <motion.p

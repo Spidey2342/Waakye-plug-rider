@@ -20,6 +20,8 @@ import { geocodeAddress, getRoute, distanceMeters, speak, parseLatLng, resolveCu
 import { reportIssue } from '../../lib/issuesApi';
 import { SUPPORT_WHATSAPP_NUMBER } from '../../lib/constants';
 import { restrictNotesInput } from '../../lib/formValidation';
+import { OrderItemsList } from '../OrderItemsList';
+import { parseOrderItems } from '../../lib/orderItems';
 
 const STAGES = ['Heading to Vendor', 'At Vendor', 'Heading to Customer', 'Delivered'];
 const ARRIVAL_THRESHOLD_M = 100;
@@ -417,6 +419,13 @@ export function ActiveOrderScreen({ order: initialOrder, riderId, onDelivered, o
   const etaMins = route ? Math.round(route.durationSec / 60) : null;
   const nextStep = route?.steps?.[currentStepIndex];
   const orderCode = `WP-${order.id.slice(0, 4).toUpperCase()}`;
+  const orderLineItems = parseOrderItems(order);
+  const paymentLabel =
+    order.payment_method === 'momo'
+      ? 'MoMo at door'
+      : order.payment_method === 'cash'
+        ? 'Cash at door'
+        : null;
 
   const handleMarkPickedUp = useCallback(async () => {
     setActionLoading(true);
@@ -580,17 +589,30 @@ export function ActiveOrderScreen({ order: initialOrder, riderId, onDelivered, o
           )}
         </div>
 
+        <div className="bg-white border border-gray-100 rounded-2xl p-4 mb-3">
+          <OrderItemsList order={order} title="Buy this at the vendor" />
+          {orderLineItems.length > 0 && (
+            <p className="text-[10px] text-gray-500 mt-3 pt-3 border-t border-gray-100">
+              {orderLineItems.reduce((n, it) => n + it.quantity, 0)} piece
+              {orderLineItems.reduce((n, it) => n + it.quantity, 0) === 1 ? '' : 's'} · show this list when you pay
+            </p>
+          )}
+        </div>
+
         <div className="bg-[#faf6ee] rounded-2xl p-4 flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
             <Wallet className="w-4 h-4 text-gray-400" />
             <div>
-              <p className="text-[10px] font-bold text-gray-400 uppercase">Pay Vendor</p>
+              <p className="text-[10px] font-bold text-gray-400 uppercase">Pay vendor (food only)</p>
               <p className="font-bold text-sm">GH₵{order.total_amount}</p>
             </div>
           </div>
           <div className="text-right">
-            <p className="text-[10px] font-bold text-gray-400 uppercase">Earning</p>
+            <p className="text-[10px] font-bold text-gray-400 uppercase">Your delivery fee</p>
             <p className="font-bold text-sm text-emerald-600">+{order.delivery_fee}</p>
+            {paymentLabel && (
+              <p className="text-[10px] font-bold text-gray-500 mt-0.5">{paymentLabel}</p>
+            )}
           </div>
         </div>
 
