@@ -127,8 +127,18 @@ Deno.serve(async (req) => {
       return jsonResponse(404, { error: 'Order not found' });
     }
 
-    // Verify ownership
-    if (order.rider_id !== riderCheck.riderId) {
+    // Verify ownership — orders.rider_id is riders.id, not profiles.id
+    const { data: riderRow, error: riderLookupError } = await supabaseAdmin
+      .from('riders')
+      .select('id')
+      .eq('profile_id', riderCheck.riderId)
+      .maybeSingle();
+
+    if (riderLookupError || !riderRow) {
+      return jsonResponse(403, { error: 'Rider profile not found' });
+    }
+
+    if (order.rider_id !== riderRow.id) {
       return jsonResponse(403, { error: 'You are not assigned to this order' });
     }
 

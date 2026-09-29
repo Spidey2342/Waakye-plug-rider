@@ -15,7 +15,7 @@ import {
   Loader2,
   Check,
 } from 'lucide-react';
-import { markPickedUp, markDelivered, updateRiderLocation } from '../../lib/ordersApi';
+import { markPickedUp, markDelivered, updateRiderLocation, verifyDelivery } from '../../lib/ordersApi';
 import { geocodeAddress, getRoute, distanceMeters, speak, parseLatLng, resolveCustomerDropoff } from '../../lib/mapService';
 import { reportIssue } from '../../lib/issuesApi';
 import { SUPPORT_WHATSAPP_NUMBER } from '../../lib/constants';
@@ -114,6 +114,7 @@ export function ActiveOrderScreen({ order: initialOrder, riderId, onDelivered, o
   const [mapError, setMapError] = useState(null);
   const [actionLoading, setActionLoading] = useState(false);
   const [showDeliverConfirm, setShowDeliverConfirm] = useState(false);
+  const [deliveryCodeInput, setDeliveryCodeInput] = useState('');
   const [showReportIssue, setShowReportIssue] = useState(false);
   const [issueText, setIssueText] = useState('');
   const [issueSubmitting, setIssueSubmitting] = useState(false);
@@ -402,17 +403,32 @@ export function ActiveOrderScreen({ order: initialOrder, riderId, onDelivered, o
   }, [order.id]);
 
   const handleConfirmDelivered = useCallback(async () => {
+    const code = deliveryCodeInput.trim();
+    if (!/^\d{4}$/.test(code)) {
+      setMapError('Enter the 4-digit code the customer shows you.');
+      return;
+    }
+
     setActionLoading(true);
     try {
-      const updated = await markDelivered(order.id);
+      let updated;
+      if (order.delivery_code_hash) {
+        const result = await verifyDelivery(order.id, code);
+        updated = result.order ?? result;
+      } else if (order.delivery_code && code !== order.delivery_code) {
+        throw new Error('Code does not match this order. Ask the customer to open their order in Waakye Plug.');
+      } else {
+        updated = await markDelivered(order.id);
+      }
       setShowDeliverConfirm(false);
+      setDeliveryCodeInput('');
       onDelivered(updated);
     } catch (err) {
       setMapError(err.message);
     } finally {
       setActionLoading(false);
     }
-  }, [order.id, onDelivered]);
+  }, [order.id, order.delivery_code, order.delivery_code_hash, deliveryCodeInput, onDelivered]);
 
   function callVendor() {
     if (order.vendors?.phone) window.location.href = `tel:${order.vendors.phone}`;
@@ -550,6 +566,22 @@ export function ActiveOrderScreen({ order: initialOrder, riderId, onDelivered, o
           </div>
         </div>
 
+        {order.delivery_code && order.status !== 'delivered' && (
+          <div className="mb-4 rounded-2xl border-2 border-dashed border-[#7a1d1d]/30 bg-white p-4 text-center">
+            <p className="text-[10px] font-bold uppercase tracking-wide text-gray-500 mb-1">
+              Customer delivery code
+            </p>
+            <p className="font-mono text-3xl font-bold tracking-[0.3em] text-[#7a1d1d] tabular-nums">
+              {order.delivery_code}
+            </p>
+            <p className="text-xs text-gray-500 mt-2">
+              {order.status === 'picked_up'
+                ? 'Ask the customer to show this same code before you hand over the food.'
+                : 'You will confirm this code with the customer at dropoff.'}
+            </p>
+          </div>
+        )}
+
         {order.status === 'rider_assigned' && (
           <motion.button
             whileTap={{ scale: 0.98 }}
@@ -565,12 +597,15 @@ export function ActiveOrderScreen({ order: initialOrder, riderId, onDelivered, o
         {order.status === 'picked_up' && (
           <motion.button
             whileTap={{ scale: 0.98 }}
-            onClick={() => setShowDeliverConfirm(true)}
+            onClick={() => {
+              setDeliveryCodeInput('');
+              setShowDeliverConfirm(true);
+            }}
             disabled={actionLoading}
             className="w-full bg-[#7a1d1d] text-white py-4 rounded-2xl font-bold text-base flex items-center justify-center gap-2 disabled:opacity-60 mb-3"
           >
             <CheckCircle2 className="w-4 h-4" />
-            Mark Delivered
+            Confirm delivery code
           </motion.button>
         )}
 
@@ -609,9 +644,30 @@ export function ActiveOrderScreen({ order: initialOrder, riderId, onDelivered, o
               onClick={(e) => e.stopPropagation()}
               className="bg-white rounded-t-3xl w-full max-w-md p-6 pb-[calc(env(safe-area-inset-bottom)+24px)]"
             >
-              <p className="font-bold text-lg mb-1">Confirm cash collected</p>
-              <p className="text-sm text-gray-500 mb-5">
-                Confirm you've collected <span className="font-bold text-gray-900">GH₵{Number(order.total_amount) + Number(order.delivery_fee)}</span> from the customer (food + delivery fee) before marking this delivered.
+              <p className="font-bold text-lg mb-1">Confirm delivery</p>
+              <p className="text-sm text-gray-500 mb-4">
+                Ask the customer for their <span className="font-bold text-gray-900">4-digit delivery code</span>, then enter it below.
+                {order.delivery_code ? (
+                  <> Expected: <span className="font-mono font-bold text-[#7a1d1d]">{order.delivery_code}</span>.</>
+                ) : null}
+              </p>
+              <input
+                type="text"
+                inputMode="numeric"
+                pattern="\d*"
+                maxLength={4}
+                value={deliveryCodeInput}
+                onChange={(e) => setDeliveryCodeInput(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                placeholder="0000"
+                className="w-full text-center font-mono text-3xl tracking-[0.4em] border-2 border-gray-200 rounded-2xl py-4 mb-4 outline-none focus:border-[#7a1d1d]"
+                autoComplete="one-time-code"
+              />
+              <p className="text-xs text-gray-500 mb-5">
+                Also confirm cash collected:{' '}
+                <span className="font-bold text-gray-900">
+                  GH₵{Number(order.total_amount) + Number(order.delivery_fee)}
+                </span>{' '}
+                (food + delivery).
               </p>
               <motion.button
                 whileTap={{ scale: 0.98 }}
@@ -620,10 +676,13 @@ export function ActiveOrderScreen({ order: initialOrder, riderId, onDelivered, o
                 className="w-full bg-[#7a1d1d] text-white py-4 rounded-2xl font-bold text-base flex items-center justify-center gap-2 disabled:opacity-60"
               >
                 {actionLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
-                Yes, Cash Collected
+                Complete delivery
               </motion.button>
               <button
-                onClick={() => setShowDeliverConfirm(false)}
+                onClick={() => {
+                  setShowDeliverConfirm(false);
+                  setDeliveryCodeInput('');
+                }}
                 className="w-full text-center text-sm font-bold text-gray-400 mt-3 py-2"
               >
                 Cancel
