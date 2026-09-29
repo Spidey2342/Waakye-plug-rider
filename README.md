@@ -1,6 +1,6 @@
 # Waakye Plug — Rider App
 
-Mobile-first web app for delivery riders. Riders log in with phone + PIN, claim available orders, navigate to vendor then customer, mark pickup/delivery, track earnings, and settle platform commission via Paystack.
+Mobile-first web app for delivery riders. Riders log in with phone + PIN, claim available orders, navigate to vendor then customer, confirm the customer's **4-digit delivery code** at dropoff, track earnings, and settle platform commission via Paystack.
 
 **Live:** https://waakye-plug-rider.vercel.app  
 **Repo:** [Spidey2342/Waakye-plug-rider](https://github.com/Spidey2342/Waakye-plug-rider)  
@@ -41,6 +41,7 @@ npm run dev
 | [docs/FEATURES.md](docs/FEATURES.md) | Exhaustive inventory of every screen, `src/lib` module, and edge function |
 | [docs/SETUP.md](docs/SETUP.md) | Local env, secrets, build, deploy |
 | [docs/OPERATIONS.md](docs/OPERATIONS.md) | Day-to-day rider ops, settlement lock, support |
+| [docs/DELIVERY_CONFIRMATION_CODE.md](docs/DELIVERY_CONFIRMATION_CODE.md) | **4-digit handoff code** with customer app — migration, UI, `verify-delivery` |
 | [RIDER_AUDIT.md](RIDER_AUDIT.md) | Security/bug audit + fix log (keep; historical source of truth) |
 
 ## Platform constants (shared)

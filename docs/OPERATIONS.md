@@ -6,8 +6,10 @@
 2. Sign in with phone + PIN
 3. Toggle **online** on Home
 4. Accept an available order (only one active order at a time)
-5. Navigate vendor → pickup → customer → mark delivered
+5. Navigate vendor → pickup → customer → ask for **4-digit delivery code** (shown on customer's order + on your active order screen) → enter code to complete delivery
 6. After Accra noon, if commission is still owed, app locks to **Settle Up** until Paystack payment succeeds
+
+**Delivery code (customer + rider):** [DELIVERY_CONFIRMATION_CODE.md](DELIVERY_CONFIRMATION_CODE.md) — schema in **Waakye-Plug2** repo; UI in both apps (`d23ce9a` rider / `8cc4d06` customer).
 
 ## Settlement lock (business rule)
 
