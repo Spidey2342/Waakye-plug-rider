@@ -17,6 +17,7 @@ import {
   Loader2,
 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
+import { setRiderOnlineStatus } from '../../lib/ordersApi';
 
 function InfoRow({ icon: Icon, label, value }) {
   if (!value) return null;
@@ -50,6 +51,9 @@ export function ProfileScreen({ rider, onNavigate, onLoggedOut }) {
   async function handleLogout() {
     setLoggingOut(true);
     try {
+      if (rider?.id) {
+        await setRiderOnlineStatus(rider.id, false).catch(() => {});
+      }
       await supabase.auth.signOut();
       onLoggedOut();
     } finally {

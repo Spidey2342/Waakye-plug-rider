@@ -48,7 +48,7 @@ npm run dev
 
 | Constant | Value |
 |---|---|
-| Delivery fee | **8 GHS** |
+| Delivery fee | **Distance-based** on customer checkout (typically **8 / 10 / 15 GHS**); rider sees `orders.delivery_fee` |
 | Service fee | **1 GHS** |
 | Rider commission | **10% of delivery fee** (DB trigger `apply_commission_on_delivery` on `delivered`) |
 | Settlement lock | After **Africa/Accra noon (12:00)** if `commission_owed > 0` and not settled since today's Accra cutoff |
@@ -67,10 +67,10 @@ Merged rider work: `acceptOrder` requires `status = 'available'` **and** `rider_
 
 Documented fully in FEATURES / OPERATIONS / audit:
 
-- HomeScreen distance/ETA still shows "Distance unavailable" / "—" until vendor GPS + rider position are wired into OSRM cards
+- HomeScreen distance/ETA still shows "Distance unavailable" / "—" until vendor GPS + rider GPS are both usable
 - Settlement lock **fails open** on first-fetch network error (fails closed if session already knew commission was owed)
 - Resend sender may still be placeholder (`onboarding@resend.dev`) until domain + secrets are verified
-- **`supabase/functions/add-rider/index.ts` still has unresolved Git conflict markers on `main`** (`<<<<<<< HEAD` / `=======` / `>>>>>>> …`) — must be resolved before relying on that function's source in-repo
+- Rider **vendor closed** flow releases the order (`release-order`); customer is **not** auto-notified in-app — rider should call (UI prompts)
 
 ## License / private
 

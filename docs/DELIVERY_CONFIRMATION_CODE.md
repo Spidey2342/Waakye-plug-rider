@@ -16,7 +16,9 @@ Cross-app feature: every **delivery** order gets a **4-digit code** so the custo
 1. Customer places order → `delivery_code` + `delivery_code_hash` on `orders` (customer app + DB trigger).
 2. Customer sees code in **Waakye-Plug2** (Order details / My Orders).
 3. Rider sees the **same code** on **Active order** (`ActiveOrderScreen.jsx`).
-4. At dropoff, rider enters the code → **`verify-delivery`** → `delivered`.
+4. At dropoff, rider enters the code → **`verify-delivery`** → `status = delivered`.
+5. **Customer app:** order moves to delivered; the 4-digit code UI clears (realtime / refetch on `orders.status`).
+6. **Rider app:** `onDelivered` → home; commission trigger runs; settlement rules apply as usual.
 
 Full write-up (schema, file list, ops):  
 [Waakye-Plug2/docs/DELIVERY_CONFIRMATION_CODE.md](https://github.com/Spidey2342/Waakye-Plug2/blob/main/docs/DELIVERY_CONFIRMATION_CODE.md)

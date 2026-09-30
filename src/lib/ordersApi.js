@@ -15,6 +15,10 @@ import { supabase } from './supabase';
 // map halfway across the world. `location` is kept as a fallback for
 // vendors who haven't set precise coordinates yet, and for display.
 const VENDOR_FIELDS = 'business_name, location, latitude, longitude, phone';
+const CUSTOMER_FIELDS = 'full_name, phone';
+
+// Customer phone for “call customer” after vendor-closed release (RLS must allow assigned rider read).
+const ORDER_WITH_CONTACTS = `*, vendors(${VENDOR_FIELDS}), customer:profiles!customer_id(${CUSTOMER_FIELDS})`;
 
 // Orders a rider can see and accept: unassigned and still in the
 // available pool. Canonical status enum no longer includes legacy
@@ -40,7 +44,7 @@ export async function fetchAvailableOrders() {
 export async function fetchActiveOrderForRider(riderId) {
   const { data, error } = await supabase
     .from('orders')
-    .select(`*, vendors(${VENDOR_FIELDS})`)
+    .select(ORDER_WITH_CONTACTS)
     .eq('rider_id', riderId)
     .in('status', ['rider_assigned', 'picked_up'])
     .order('created_at', { ascending: false })
@@ -61,7 +65,7 @@ export async function acceptOrder(orderId, riderId) {
     .eq('id', orderId)
     .eq('status', 'available')
     .is('rider_id', null)
-    .select(`*, vendors(${VENDOR_FIELDS})`);
+    .select(ORDER_WITH_CONTACTS);
 
   if (error) {
     // Postgres error code 23505 = unique_violation. The DB enforces "one
@@ -84,7 +88,7 @@ export async function markPickedUp(orderId) {
     .from('orders')
     .update({ status: 'picked_up' })
     .eq('id', orderId)
-    .select(`*, vendors(${VENDOR_FIELDS})`)
+    .select(ORDER_WITH_CONTACTS)
     .single();
 
   if (error) throw new Error(error.message);
@@ -98,7 +102,7 @@ export async function markDelivered(orderId) {
     .from('orders')
     .update({ status: 'delivered' })
     .eq('id', orderId)
-    .select(`*, vendors(${VENDOR_FIELDS})`)
+    .select(ORDER_WITH_CONTACTS)
     .single();
 
   if (error) throw new Error(error.message);
@@ -139,9 +143,6 @@ export async function updateRiderLocation(riderId, lat, lng) {
 
 // ---- Story 1 / Phase 0: Order lifecycle edge function wrappers ----
 // These call the new edge functions (release-order, cancel-order, verify-delivery).
-// NOT wired to any UI yet — ActiveOrderScreen CTAs and admin panel are Story 2.
-// Production-shaped but stubbed for future integration.
-
 // Allows a rider to release (unassign) themselves from an order they've
 // accepted but haven't picked up yet. Calls the release-order edge function.
 export async function releaseOrder(orderId, releaseReason) {

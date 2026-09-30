@@ -209,7 +209,7 @@ export function parseCoordsFromAddress(text) {
   const raw = (text || '').trim();
   if (!raw) return null;
 
-  let s = raw;
+  let s;
   try {
     // Decode %2C etc. so URL-encoded commas still match the pair regex.
     s = decodeURIComponent(raw.replace(/\+/g, ' '));

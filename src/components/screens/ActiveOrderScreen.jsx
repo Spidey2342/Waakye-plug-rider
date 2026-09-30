@@ -14,8 +14,16 @@ import {
   MessageCircle,
   Loader2,
   Check,
+  Store,
 } from 'lucide-react';
-import { markPickedUp, markDelivered, updateRiderLocation, verifyDelivery } from '../../lib/ordersApi';
+import {
+  markPickedUp,
+  markDelivered,
+  updateRiderLocation,
+  verifyDelivery,
+  releaseOrder,
+} from '../../lib/ordersApi';
+import { formatCustomerTelHref, getCustomerFromOrder } from '../../lib/customerContact';
 import { geocodeAddress, getRoute, distanceMeters, speak, parseLatLng, resolveCustomerDropoff } from '../../lib/mapService';
 import { reportIssue } from '../../lib/issuesApi';
 import { SUPPORT_WHATSAPP_NUMBER } from '../../lib/constants';
@@ -120,7 +128,7 @@ function DeliveryDigitRow({ code, size = 'lg' }) {
   );
 }
 
-export function ActiveOrderScreen({ order: initialOrder, riderId, onDelivered, onBack }) {
+export function ActiveOrderScreen({ order: initialOrder, riderId, onDelivered, onReleased, onBack }) {
   const mapRef = useRef(null);
   const mapContainerRef = useRef(null);
   const riderMarkerRef = useRef(null);
@@ -135,7 +143,7 @@ export function ActiveOrderScreen({ order: initialOrder, riderId, onDelivered, o
   const [vendorCoords, setVendorCoords] = useState(null);
   const [customerCoords, setCustomerCoords] = useState(null);
   const [riderPosition, setRiderPosition] = useState(null);
-  const [positionAccuracy, setPositionAccuracy] = useState(null);
+  const positionAccuracyRef = useRef(null);
   const [route, setRoute] = useState(null);
   const [routeRefetchTick, setRouteRefetchTick] = useState(0);
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
@@ -149,6 +157,9 @@ export function ActiveOrderScreen({ order: initialOrder, riderId, onDelivered, o
   const [issueText, setIssueText] = useState('');
   const [issueSubmitting, setIssueSubmitting] = useState(false);
   const [issueSubmitted, setIssueSubmitted] = useState(false);
+  const [showVendorClosedConfirm, setShowVendorClosedConfirm] = useState(false);
+  const [showCallCustomerPrompt, setShowCallCustomerPrompt] = useState(false);
+  const [releasedCustomerContact, setReleasedCustomerContact] = useState(null);
 
   const target = order.status === 'picked_up' ? customerCoords : vendorCoords;
 
@@ -255,30 +266,27 @@ export function ActiveOrderScreen({ order: initialOrder, riderId, onDelivered, o
       return;
     }
 
-    setPositionAccuracy((prevAccuracy) => {
-      const havePosition = prevAccuracy !== null;
-      const isLowAccuracy = accuracy != null && accuracy > MIN_USABLE_ACCURACY_M;
+    const prevAccuracy = positionAccuracyRef.current;
+    const havePosition = prevAccuracy !== null;
+    const isLowAccuracy = accuracy != null && accuracy > MIN_USABLE_ACCURACY_M;
 
-      if (isLowAccuracy && havePosition && prevAccuracy <= MIN_USABLE_ACCURACY_M) {
-        // We already have a trustworthy fix — don't let a worse one replace it.
-        setMapError(`Location signal is weak (±${Math.round(accuracy)}m) — using your last good position.`);
-        return prevAccuracy;
-      }
+    if (isLowAccuracy && havePosition && prevAccuracy <= MIN_USABLE_ACCURACY_M) {
+      setMapError(`Location signal is weak (±${Math.round(accuracy)}m) — using your last good position.`);
+      return;
+    }
 
-      setRiderPosition(next);
-      if (isLowAccuracy) {
-        setMapError(`Location is approximate (±${Math.round(accuracy)}m). Move to open sky or enable precise/GPS location for accurate directions.`);
-      } else if (accuracy != null) {
-        // Good fix — clear stale low-accuracy / waiting-for-GPS warnings.
-        setMapError((prevError) =>
-          prevError &&
-          (prevError.startsWith('Location') || prevError.startsWith('Waiting for GPS'))
-            ? null
-            : prevError
-        );
-      }
-      return accuracy;
-    });
+    positionAccuracyRef.current = accuracy;
+    setRiderPosition(next);
+    if (isLowAccuracy) {
+      setMapError(`Location is approximate (±${Math.round(accuracy)}m). Move to open sky or enable precise/GPS location for accurate directions.`);
+    } else if (accuracy != null) {
+      setMapError((prevError) =>
+        prevError &&
+        (prevError.startsWith('Location') || prevError.startsWith('Waiting for GPS'))
+          ? null
+          : prevError
+      );
+    }
   }, []);
 
   useEffect(() => {
@@ -467,9 +475,36 @@ export function ActiveOrderScreen({ order: initialOrder, riderId, onDelivered, o
     }
   }, [order.id, order.delivery_code, order.delivery_code_hash, deliveryCodeInput, onDelivered]);
 
+  const handleVendorClosedRelease = useCallback(async () => {
+    setActionLoading(true);
+    try {
+      const contact = getCustomerFromOrder(order);
+      await releaseOrder(order.id, 'Vendor closed / not open when rider arrived');
+      setShowVendorClosedConfirm(false);
+      setReleasedCustomerContact(contact);
+      setShowCallCustomerPrompt(true);
+    } catch (err) {
+      setMapError(err.message);
+    } finally {
+      setActionLoading(false);
+    }
+  }, [order]);
+
+  function finishReleaseAndGoHome() {
+    setShowCallCustomerPrompt(false);
+    onReleased?.();
+  }
+
   function callVendor() {
     if (order.vendors?.phone) window.location.href = `tel:${order.vendors.phone}`;
     else setMapError('No phone number on file for this vendor.');
+  }
+
+  function callCustomer() {
+    const contact = releasedCustomerContact ?? getCustomerFromOrder(order);
+    const href = formatCustomerTelHref(contact?.phone);
+    if (href) window.location.href = href;
+    else setMapError('Customer phone not available — use Chat Support.');
   }
 
   function openChatSupport() {
@@ -631,15 +666,26 @@ export function ActiveOrderScreen({ order: initialOrder, riderId, onDelivered, o
         )}
 
         {order.status === 'rider_assigned' && (
-          <motion.button
-            whileTap={{ scale: 0.98 }}
-            onClick={handleMarkPickedUp}
-            disabled={actionLoading}
-            className="w-full bg-[#7a1d1d] text-white py-4 rounded-2xl font-bold text-base flex items-center justify-center gap-2 disabled:opacity-60 mb-3"
-          >
-            {actionLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
-            Mark Picked Up
-          </motion.button>
+          <>
+            <motion.button
+              whileTap={{ scale: 0.98 }}
+              onClick={handleMarkPickedUp}
+              disabled={actionLoading}
+              className="w-full bg-[#7a1d1d] text-white py-4 rounded-2xl font-bold text-base flex items-center justify-center gap-2 disabled:opacity-60 mb-3"
+            >
+              {actionLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+              Mark Picked Up
+            </motion.button>
+            <button
+              type="button"
+              onClick={() => setShowVendorClosedConfirm(true)}
+              disabled={actionLoading}
+              className="w-full mb-3 border-2 border-amber-200 bg-amber-50 text-amber-950 py-3.5 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 disabled:opacity-60"
+            >
+              <Store className="w-4 h-4" />
+              Vendor closed — cancel my pickup
+            </button>
+          </>
         )}
 
         {order.status === 'picked_up' && (
@@ -803,6 +849,93 @@ export function ActiveOrderScreen({ order: initialOrder, riderId, onDelivered, o
                   </button>
                 </>
               )}
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showVendorClosedConfirm && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/40 flex items-end justify-center z-50"
+            onClick={() => !actionLoading && setShowVendorClosedConfirm(false)}
+          >
+            <motion.div
+              initial={{ y: 100 }}
+              animate={{ y: 0 }}
+              exit={{ y: 100 }}
+              transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-white rounded-t-3xl w-full max-w-md p-6 pb-[calc(env(safe-area-inset-bottom)+24px)]"
+            >
+              <p className="font-bold text-lg mb-1">Vendor not open?</p>
+              <p className="text-sm text-gray-500 mb-5">
+                This removes you from the order and puts it back for other riders. You must{' '}
+                <span className="font-bold text-gray-800">call the customer</span> next so they know what happened.
+              </p>
+              <motion.button
+                whileTap={{ scale: 0.98 }}
+                onClick={handleVendorClosedRelease}
+                disabled={actionLoading}
+                className="w-full bg-amber-600 text-white py-4 rounded-2xl font-bold text-base flex items-center justify-center gap-2 disabled:opacity-60"
+              >
+                {actionLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Store className="w-4 h-4" />}
+                Yes — vendor closed
+              </motion.button>
+              <button
+                type="button"
+                onClick={() => setShowVendorClosedConfirm(false)}
+                disabled={actionLoading}
+                className="w-full text-center text-sm font-bold text-gray-400 mt-3 py-2"
+              >
+                Go back
+              </button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showCallCustomerPrompt && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/40 flex items-end justify-center z-50"
+          >
+            <motion.div
+              initial={{ y: 100 }}
+              animate={{ y: 0 }}
+              exit={{ y: 100 }}
+              transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+              className="bg-white rounded-t-3xl w-full max-w-md p-6 pb-[calc(env(safe-area-inset-bottom)+24px)]"
+            >
+              <p className="font-bold text-lg mb-1">Call the customer</p>
+              <p className="text-sm text-gray-500 mb-4">
+                Tell them the vendor was closed and their order is waiting again in the app. Apologize and suggest they
+                try again later or choose another vendor.
+              </p>
+              {releasedCustomerContact?.full_name && (
+                <p className="text-sm font-bold text-gray-800 mb-4">{releasedCustomerContact.full_name}</p>
+              )}
+              <motion.button
+                whileTap={{ scale: 0.98 }}
+                onClick={callCustomer}
+                className="w-full bg-[#7a1d1d] text-white py-4 rounded-2xl font-bold text-base flex items-center justify-center gap-2 mb-3"
+              >
+                <Phone className="w-4 h-4" />
+                Call customer now
+              </motion.button>
+              <button
+                type="button"
+                onClick={finishReleaseAndGoHome}
+                className="w-full text-center text-sm font-bold text-gray-500 py-2"
+              >
+                I&apos;ve called them — back to orders
+              </button>
             </motion.div>
           </motion.div>
         )}

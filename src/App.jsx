@@ -14,18 +14,6 @@ import { getCurrentRider } from './lib/riderAuth';
 import { fetchActiveOrderForRider } from './lib/ordersApi';
 import { submitRiderApplication } from './lib/submitRider';
 
-function PlaceholderScreen({ title, onBack }) {
-  return (
-    <div className="min-h-[100dvh] bg-[#fefaf4] flex flex-col items-center justify-center px-6 text-center gap-4">
-      <p className="text-lg font-bold">{title}</p>
-      <p className="text-sm text-gray-500">This screen isn't built yet.</p>
-      <button onClick={onBack} className="text-[#7a1d1d] font-bold text-sm">
-        Back to Home
-      </button>
-    </div>
-  );
-}
-
 function App() {
   const [screen, setScreen] = useState('login');
   const [successMessage, setSuccessMessage] = useState(null);
@@ -217,6 +205,10 @@ function App() {
           setActiveOrder(null);
           setScreen('home');
           await checkSettlementLock(loggedInRider);
+        }}
+        onReleased={() => {
+          setActiveOrder(null);
+          setScreen('home');
         }}
       />
     );

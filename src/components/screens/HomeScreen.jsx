@@ -136,7 +136,9 @@ export function HomeScreen({ rider, onNavigate, onOrderAccepted }) {
   const lastLocationSyncAtRef = useRef(0);
   const knownOrderIdsRef = useRef(null);
   const isOnlineRef = useRef(isOnline);
-  isOnlineRef.current = isOnline;
+  useEffect(() => {
+    isOnlineRef.current = isOnline;
+  }, [isOnline]);
 
   // Live location while online. This previously didn't exist at all on
   // this screen — the rider's position was only ever read once a delivery
@@ -248,12 +250,14 @@ export function HomeScreen({ rider, onNavigate, onOrderAccepted }) {
   async function handleAccept(orderId) {
     setAccepting(orderId);
     setError(null);
+    // Drop from the list immediately so other riders (and double-taps) don't keep hammering Accept.
+    setOrders((prev) => prev.filter((o) => o.id !== orderId));
     try {
       const accepted = await acceptOrder(orderId, rider.id);
       onOrderAccepted(accepted);
     } catch (err) {
       setError(err.message);
-      loadOrders(); // refresh the list since it may already be stale
+      loadOrders({ silent: true });
     } finally {
       setAccepting(null);
     }
