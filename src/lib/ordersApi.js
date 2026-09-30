@@ -55,6 +55,40 @@ export async function fetchActiveOrderForRider(riderId) {
   return data;
 }
 
+export async function fetchOrderDetails(orderId) {
+  const { data, error } = await supabase
+    .from('orders')
+    .select(ORDER_WITH_CONTACTS)
+    .eq('id', orderId)
+    .maybeSingle();
+
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+/** Customer phone via edge function when profile join is blocked by RLS. */
+export async function fetchCustomerContactForOrder(orderId) {
+  const session = await supabase.auth.getSession();
+  const token = session.data.session?.access_token;
+  if (!token) throw new Error('Not authenticated');
+
+  const res = await fetch(
+    `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/rider-order-contact`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ order_id: orderId }),
+    }
+  );
+
+  const result = await res.json();
+  if (!res.ok) throw new Error(result.error || 'Could not load customer phone');
+  return result.customer;
+}
+
 // Safely claim an order: only succeeds if the row is still `available` AND
 // nobody else took it (rider_id IS NULL). Empty result = lost the race or
 // the order left the pool (cancelled / already assigned).

@@ -80,6 +80,7 @@ npx supabase functions deploy paystack-webhook
 npx supabase functions deploy release-order
 npx supabase functions deploy verify-delivery
 npx supabase functions deploy rider-cancel-vendor-closed
+npx supabase functions deploy rider-order-contact
 ```
 
 > Resolve **Git conflict markers** in `supabase/functions/add-rider/index.ts` before deploying from a fresh checkout of `main`.

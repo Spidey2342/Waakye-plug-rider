@@ -15,3 +15,10 @@ export function formatCustomerTelHref(phone) {
   if (digits.startsWith('0')) return `tel:+233${digits.slice(1)}`;
   return `tel:+233${digits}`;
 }
+
+/** Human-readable label for the call sheet (keeps leading 0 if stored that way). */
+export function formatCustomerPhoneDisplay(phone) {
+  if (!phone) return null;
+  const trimmed = String(phone).trim();
+  return trimmed || null;
+}

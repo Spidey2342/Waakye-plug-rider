@@ -22,8 +22,15 @@ import {
   updateRiderLocation,
   verifyDelivery,
   cancelOrderVendorClosed,
+  fetchCustomerContactForOrder,
+  fetchOrderDetails,
 } from '../../lib/ordersApi';
-import { formatCustomerTelHref, getCustomerFromOrder } from '../../lib/customerContact';
+import { supabase } from '../../lib/supabase';
+import {
+  formatCustomerPhoneDisplay,
+  formatCustomerTelHref,
+  getCustomerFromOrder,
+} from '../../lib/customerContact';
 import { geocodeAddress, getRoute, distanceMeters, speak, parseLatLng, resolveCustomerDropoff } from '../../lib/mapService';
 import { reportIssue } from '../../lib/issuesApi';
 import { SUPPORT_WHATSAPP_NUMBER } from '../../lib/constants';
@@ -160,8 +167,68 @@ export function ActiveOrderScreen({ order: initialOrder, riderId, onDelivered, o
   const [showVendorClosedConfirm, setShowVendorClosedConfirm] = useState(false);
   const [showCallCustomerPrompt, setShowCallCustomerPrompt] = useState(false);
   const [releasedCustomerContact, setReleasedCustomerContact] = useState(null);
+  const [customerContact, setCustomerContact] = useState(() => getCustomerFromOrder(initialOrder));
+  const [customerContactError, setCustomerContactError] = useState(null);
 
   const target = order.status === 'picked_up' ? customerCoords : vendorCoords;
+  const callCustomerContact = releasedCustomerContact ?? customerContact;
+  const customerTelHref = formatCustomerTelHref(callCustomerContact?.phone);
+  const customerPhoneLabel = formatCustomerPhoneDisplay(callCustomerContact?.phone);
+
+  useEffect(() => {
+    let alive = true;
+    const embedded = getCustomerFromOrder(order);
+    if (embedded?.phone) {
+      setCustomerContact(embedded);
+      setCustomerContactError(null);
+      return undefined;
+    }
+    (async () => {
+      try {
+        const c = await fetchCustomerContactForOrder(order.id);
+        if (alive) {
+          setCustomerContact(c);
+          setCustomerContactError(null);
+        }
+      } catch (err) {
+        if (alive) setCustomerContactError(err.message);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [order.id]);
+
+  useEffect(() => {
+    const channel = supabase
+      .channel(`active-order-${order.id}`)
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'orders', filter: `id=eq.${order.id}` },
+        async () => {
+          try {
+            const fresh = await fetchOrderDetails(order.id);
+            if (!fresh) return;
+            setOrder((prev) => ({
+              ...fresh,
+              vendors: fresh.vendors ?? prev.vendors,
+              customer: fresh.customer ?? prev.customer,
+            }));
+            if (fresh.status === 'cancelled') {
+              setMapError('This order was cancelled.');
+              onReleased?.();
+            }
+          } catch {
+            // keep last known state if refetch fails
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [order.id, onReleased]);
 
   useEffect(() => {
     const style = document.createElement('style');
@@ -478,17 +545,22 @@ export function ActiveOrderScreen({ order: initialOrder, riderId, onDelivered, o
   const handleVendorClosedCancel = useCallback(async () => {
     setActionLoading(true);
     try {
-      const contact = getCustomerFromOrder(order);
-      await cancelOrderVendorClosed(order.id);
+      const result = await cancelOrderVendorClosed(order.id);
+      const contact =
+        result.customer ??
+        getCustomerFromOrder(order) ??
+        customerContact ??
+        (await fetchCustomerContactForOrder(order.id).catch(() => null));
       setShowVendorClosedConfirm(false);
       setReleasedCustomerContact(contact);
+      if (contact?.phone) setCustomerContact(contact);
       setShowCallCustomerPrompt(true);
     } catch (err) {
       setMapError(err.message);
     } finally {
       setActionLoading(false);
     }
-  }, [order]);
+  }, [order, customerContact]);
 
   function finishReleaseAndGoHome() {
     setShowCallCustomerPrompt(false);
@@ -498,13 +570,6 @@ export function ActiveOrderScreen({ order: initialOrder, riderId, onDelivered, o
   function callVendor() {
     if (order.vendors?.phone) window.location.href = `tel:${order.vendors.phone}`;
     else setMapError('No phone number on file for this vendor.');
-  }
-
-  function callCustomer() {
-    const contact = releasedCustomerContact ?? getCustomerFromOrder(order);
-    const href = formatCustomerTelHref(contact?.phone);
-    if (href) window.location.href = href;
-    else setMapError('Customer phone not available — use Chat Support.');
   }
 
   function openChatSupport() {
@@ -701,6 +766,22 @@ export function ActiveOrderScreen({ order: initialOrder, riderId, onDelivered, o
             <CheckCircle2 className="w-4 h-4" />
             Confirm delivery code
           </motion.button>
+        )}
+
+        {customerPhoneLabel && customerTelHref && order.status !== 'delivered' && (
+          <a
+            href={customerTelHref}
+            className="flex items-center justify-between gap-3 w-full mb-3 bg-white border border-gray-200 rounded-2xl px-4 py-3 active:scale-[0.99] transition-transform"
+          >
+            <div className="min-w-0 text-left">
+              <p className="text-[10px] font-bold uppercase text-gray-400 tracking-wide">Customer</p>
+              <p className="font-bold text-sm truncate">{callCustomerContact?.full_name ?? 'Customer'}</p>
+              <p className="text-lg font-bold text-[#7a1d1d] tabular-nums tracking-wide">{customerPhoneLabel}</p>
+            </div>
+            <div className="shrink-0 w-11 h-11 rounded-full bg-emerald-50 flex items-center justify-center">
+              <Phone className="w-5 h-5 text-emerald-700" />
+            </div>
+          </a>
         )}
 
         <div className="grid grid-cols-2 gap-3">
@@ -920,17 +1001,33 @@ export function ActiveOrderScreen({ order: initialOrder, riderId, onDelivered, o
                 <span className="font-bold text-gray-800">cancelled</span> in the app. Apologize and suggest they order
                 again later or from another vendor.
               </p>
-              {releasedCustomerContact?.full_name && (
-                <p className="text-sm font-bold text-gray-800 mb-4">{releasedCustomerContact.full_name}</p>
+              {customerPhoneLabel && customerTelHref ? (
+                <a
+                  href={customerTelHref}
+                  className="block w-full bg-[#7a1d1d] text-white py-4 px-4 rounded-2xl font-bold text-base mb-3 active:scale-[0.98] transition-transform"
+                >
+                  <span className="flex items-center justify-center gap-2">
+                    <Phone className="w-4 h-4" />
+                    Tap to call
+                  </span>
+                  <span className="block text-center text-lg tabular-nums tracking-wide mt-1">
+                    {customerPhoneLabel}
+                  </span>
+                  {callCustomerContact?.full_name && (
+                    <span className="block text-center text-xs font-medium opacity-90 mt-0.5">
+                      {callCustomerContact.full_name}
+                    </span>
+                  )}
+                </a>
+              ) : (
+                <div className="mb-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                  <p className="font-bold">Customer number not loaded</p>
+                  <p className="text-xs mt-1 opacity-90">
+                    {customerContactError ??
+                      'Deploy rider-order-contact on Supabase, or ask support for the customer phone.'}
+                  </p>
+                </div>
               )}
-              <motion.button
-                whileTap={{ scale: 0.98 }}
-                onClick={callCustomer}
-                className="w-full bg-[#7a1d1d] text-white py-4 rounded-2xl font-bold text-base flex items-center justify-center gap-2 mb-3"
-              >
-                <Phone className="w-4 h-4" />
-                Call customer now
-              </motion.button>
               <button
                 type="button"
                 onClick={finishReleaseAndGoHome}
