@@ -8,7 +8,8 @@ These functions use service-role credentials to perform mutations that require b
 
 | Function | Caller | Purpose |
 |----------|--------|---------|
-| `release-order` | Rider JWT | Unassign self from accepted order (before pickup) |
+| `release-order` | Rider JWT | Unassign self — order back to `available` (escape hatch; not vendor-closed cancel) |
+| `rider-cancel-vendor-closed` | Rider JWT | Vendor closed before pickup → `cancelled` for customer + rider |
 | `cancel-order` | Admin JWT | Cancel order at any stage (available → picked_up) |
 | `verify-delivery` | Rider JWT | Confirm delivery with customer's 4-digit code |
 

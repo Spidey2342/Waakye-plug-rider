@@ -5,6 +5,9 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+const CANCEL_REASON =
+  'Vendor closed — rider could not purchase food (order cancelled for customer)';
+
 function jsonResponse(status: number, body: unknown) {
   return new Response(JSON.stringify(body), {
     status,
@@ -12,11 +15,10 @@ function jsonResponse(status: number, body: unknown) {
   });
 }
 
-// Verifies the caller's JWT and returns the rider's profile ID.
 async function requireRider(
   req: Request,
   supabaseAdmin: SupabaseClient
-): Promise<{ ok: true; riderId: string } | { ok: false; response: Response }> {
+): Promise<{ ok: true; profileId: string } | { ok: false; response: Response }> {
   const authHeader = req.headers.get('Authorization') ?? '';
   const token = authHeader.replace(/^Bearer\s+/i, '').trim();
 
@@ -39,25 +41,22 @@ async function requireRider(
     return { ok: false, response: jsonResponse(403, { error: 'Rider access required' }) };
   }
 
-  return { ok: true, riderId: data.user.id };
+  return { ok: true, profileId: data.user.id };
 }
 
-// Allows a rider to release (unassign themselves from) an order they've
-// accepted but haven't picked up yet. This is the escape hatch for cases
-// where a rider realizes they can't make it to the vendor, or the vendor
-// tells them the order won't be ready for a long time.
-//
-// Product rules (locked):
-// 1. Rider must own the order (rider_id matches)
-// 2. Status must be exactly `rider_assigned` (NOT picked_up)
-// 3. On success: status -> `available`, rider_id -> null
-// 4. Optional release_reason field (for analytics / future admin visibility)
-// 5. May insert/update order_issues note with the reason
-//
-// What this does NOT do (intentionally):
-// - Does not allow releasing after pickup (picked_up status blocks it)
-// - Does not notify customer (WhatsApp notification is a later story)
-// - Does not penalize the rider (penalty/rating system TBD)
+async function ridersTableIdForProfile(
+  supabaseAdmin: SupabaseClient,
+  profileId: string
+): Promise<string | null> {
+  const { data: riderRow } = await supabaseAdmin
+    .from('riders')
+    .select('id')
+    .eq('profile_id', profileId)
+    .maybeSingle();
+  return riderRow?.id ?? null;
+}
+
+// Rider-only: vendor closed before pickup → full cancel for customer + rider (status cancelled).
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
@@ -72,13 +71,17 @@ Deno.serve(async (req) => {
     const riderCheck = await requireRider(req, supabaseAdmin);
     if (!riderCheck.ok) return riderCheck.response;
 
-    const { order_id, release_reason } = await req.json();
+    const ridersId = await ridersTableIdForProfile(supabaseAdmin, riderCheck.profileId);
+    if (!ridersId) {
+      return jsonResponse(403, { error: 'Rider profile not found' });
+    }
+
+    const { order_id, note } = await req.json();
 
     if (!order_id) {
       return jsonResponse(400, { error: 'order_id is required' });
     }
 
-    // First verify ownership and current status before making any changes.
     const { data: order, error: fetchError } = await supabaseAdmin
       .from('orders')
       .select('id, rider_id, status')
@@ -89,56 +92,57 @@ Deno.serve(async (req) => {
       return jsonResponse(404, { error: 'Order not found' });
     }
 
-    const { data: riderRow, error: riderLookupError } = await supabaseAdmin
-      .from('riders')
-      .select('id')
-      .eq('profile_id', riderCheck.riderId)
-      .maybeSingle();
-
-    if (riderLookupError || !riderRow || order.rider_id !== riderRow.id) {
+    if (order.rider_id !== ridersId) {
       return jsonResponse(403, { error: 'You are not assigned to this order' });
     }
 
     if (order.status !== 'rider_assigned') {
       if (order.status === 'picked_up') {
         return jsonResponse(400, {
-          error: 'Cannot release order after pickup. Please contact support if you need to cancel.'
+          error: 'Cannot cancel after pickup. Contact support.',
         });
       }
+      if (order.status === 'cancelled') {
+        return jsonResponse(400, { error: 'Order is already cancelled' });
+      }
       return jsonResponse(400, {
-        error: `Cannot release order in ${order.status} status`
+        error: `Cannot cancel order in ${order.status} status`,
       });
     }
 
-    // Status and ownership are valid — release the order back to the pool.
-    const { data: released, error: updateError } = await supabaseAdmin
+    const reason =
+      note && typeof note === 'string' && note.trim()
+        ? `${CANCEL_REASON}. Rider note: ${note.trim()}`
+        : CANCEL_REASON;
+
+    const { data: cancelled, error: updateError } = await supabaseAdmin
       .from('orders')
       .update({
-        status: 'available',
+        status: 'cancelled',
         rider_id: null,
+        cancel_reason: reason,
       })
       .eq('id', order_id)
       .select()
       .single();
 
-    if (updateError || !released) {
-      return jsonResponse(500, { error: 'Failed to release order' });
-    }
-
-    // If a reason was provided, record it in order_issues for admin visibility
-    // and future analytics. This is best-effort — don't fail the release if
-    // the issue insert fails.
-    if (release_reason && typeof release_reason === 'string' && release_reason.trim()) {
-      await supabaseAdmin
-        .from('order_issues')
-        .insert({
-          order_id: order_id,
-          rider_id: riderRow.id,
-          description: `Rider released order: ${release_reason.trim()}`,
+    if (updateError || !cancelled) {
+      const msg = updateError?.message ?? '';
+      if (/cancel_reason/i.test(msg)) {
+        return jsonResponse(500, {
+          error: 'Cancel failed — cancel_reason column may be missing. Run platform migrations.',
         });
+      }
+      return jsonResponse(500, { error: 'Failed to cancel order' });
     }
 
-    return jsonResponse(200, { success: true, order: released });
+    await supabaseAdmin.from('order_issues').insert({
+      order_id,
+      rider_id: ridersId,
+      description: reason,
+    });
+
+    return jsonResponse(200, { success: true, order: cancelled });
   } catch (err) {
     return jsonResponse(500, {
       error: err instanceof Error ? err.message : 'Unknown error',

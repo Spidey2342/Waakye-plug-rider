@@ -21,7 +21,7 @@ import {
   markDelivered,
   updateRiderLocation,
   verifyDelivery,
-  releaseOrder,
+  cancelOrderVendorClosed,
 } from '../../lib/ordersApi';
 import { formatCustomerTelHref, getCustomerFromOrder } from '../../lib/customerContact';
 import { geocodeAddress, getRoute, distanceMeters, speak, parseLatLng, resolveCustomerDropoff } from '../../lib/mapService';
@@ -475,11 +475,11 @@ export function ActiveOrderScreen({ order: initialOrder, riderId, onDelivered, o
     }
   }, [order.id, order.delivery_code, order.delivery_code_hash, deliveryCodeInput, onDelivered]);
 
-  const handleVendorClosedRelease = useCallback(async () => {
+  const handleVendorClosedCancel = useCallback(async () => {
     setActionLoading(true);
     try {
       const contact = getCustomerFromOrder(order);
-      await releaseOrder(order.id, 'Vendor closed / not open when rider arrived');
+      await cancelOrderVendorClosed(order.id);
       setShowVendorClosedConfirm(false);
       setReleasedCustomerContact(contact);
       setShowCallCustomerPrompt(true);
@@ -683,7 +683,7 @@ export function ActiveOrderScreen({ order: initialOrder, riderId, onDelivered, o
               className="w-full mb-3 border-2 border-amber-200 bg-amber-50 text-amber-950 py-3.5 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 disabled:opacity-60"
             >
               <Store className="w-4 h-4" />
-              Vendor closed — cancel my pickup
+              Vendor closed — cancel order
             </button>
           </>
         )}
@@ -873,17 +873,18 @@ export function ActiveOrderScreen({ order: initialOrder, riderId, onDelivered, o
             >
               <p className="font-bold text-lg mb-1">Vendor not open?</p>
               <p className="text-sm text-gray-500 mb-5">
-                This removes you from the order and puts it back for other riders. You must{' '}
-                <span className="font-bold text-gray-800">call the customer</span> next so they know what happened.
+                This <span className="font-bold text-gray-800">cancels the customer&apos;s order</span> in Waakye Plug
+                (it will not go to another rider). You must{' '}
+                <span className="font-bold text-gray-800">call the customer</span> to explain.
               </p>
               <motion.button
                 whileTap={{ scale: 0.98 }}
-                onClick={handleVendorClosedRelease}
+                onClick={handleVendorClosedCancel}
                 disabled={actionLoading}
                 className="w-full bg-amber-600 text-white py-4 rounded-2xl font-bold text-base flex items-center justify-center gap-2 disabled:opacity-60"
               >
                 {actionLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Store className="w-4 h-4" />}
-                Yes — vendor closed
+                Yes — cancel this order
               </motion.button>
               <button
                 type="button"
@@ -915,8 +916,9 @@ export function ActiveOrderScreen({ order: initialOrder, riderId, onDelivered, o
             >
               <p className="font-bold text-lg mb-1">Call the customer</p>
               <p className="text-sm text-gray-500 mb-4">
-                Tell them the vendor was closed and their order is waiting again in the app. Apologize and suggest they
-                try again later or choose another vendor.
+                Tell them the vendor was closed and their order is{' '}
+                <span className="font-bold text-gray-800">cancelled</span> in the app. Apologize and suggest they order
+                again later or from another vendor.
               </p>
               {releasedCustomerContact?.full_name && (
                 <p className="text-sm font-bold text-gray-800 mb-4">{releasedCustomerContact.full_name}</p>

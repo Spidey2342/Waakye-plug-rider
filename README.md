@@ -70,7 +70,7 @@ Documented fully in FEATURES / OPERATIONS / audit:
 - HomeScreen distance/ETA still shows "Distance unavailable" / "—" until vendor GPS + rider GPS are both usable
 - Settlement lock **fails open** on first-fetch network error (fails closed if session already knew commission was owed)
 - Resend sender may still be placeholder (`onboarding@resend.dev`) until domain + secrets are verified
-- Rider **vendor closed** flow releases the order (`release-order`); customer is **not** auto-notified in-app — rider should call (UI prompts)
+- Rider **vendor closed** cancels the order (`rider-cancel-vendor-closed` → `status=cancelled`); customer app should show cancelled on realtime — rider should still call (UI prompts)
 
 ## License / private
 

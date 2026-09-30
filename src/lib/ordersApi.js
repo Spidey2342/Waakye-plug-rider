@@ -167,6 +167,32 @@ export async function releaseOrder(orderId, releaseReason) {
   return res.json();
 }
 
+// Vendor closed before pickup — cancels the order for the customer (status cancelled), not re-queue.
+export async function cancelOrderVendorClosed(orderId, note) {
+  const session = await supabase.auth.getSession();
+  const token = session.data.session?.access_token;
+  if (!token) throw new Error('Not authenticated');
+
+  const res = await fetch(
+    `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/rider-cancel-vendor-closed`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        order_id: orderId,
+        ...(note?.trim() ? { note: note.trim() } : {}),
+      }),
+    }
+  );
+
+  const result = await res.json();
+  if (!res.ok) throw new Error(result.error || 'Failed to cancel order');
+  return result;
+}
+
 // Admin-only cancellation. Calls the cancel-order edge function.
 export async function cancelOrder(orderId, cancelReason) {
   const session = await supabase.auth.getSession();
