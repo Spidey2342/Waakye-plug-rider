@@ -258,7 +258,7 @@ export async function verifyDelivery(orderId, deliveryCode) {
   const token = session.data.session?.access_token;
   if (!token) throw new Error('Not authenticated');
 
-  const res = await fetch(`${supabase.supabaseUrl}/functions/v1/verify-delivery`, {
+  const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/verify-delivery`, {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${token}`,

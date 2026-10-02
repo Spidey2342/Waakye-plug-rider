@@ -180,7 +180,16 @@ available → rider_assigned → picked_up → delivered
 - Hash comparison uses bcrypt (secure against timing attacks)
 - Rate limit is per-order, not per-rider (prevents session reuse attacks)
 
-**TODO (stub comments in code):**
+**UI integration:**
+- **WIRED**: ActiveOrderScreen replaces honor-system "Mark Delivered" with 4-digit code verification flow when status is `picked_up`
+- Shows "Confirm delivery code" button → opens modal with numeric input
+- If order has `delivery_code` (plaintext for reference), displays it above the input
+- Calls `verifyDelivery(orderId, code)` on submit
+- Wrong code shows clear error; 429 rate-limit shows retry-after message
+- On success, marks order delivered and fires commission trigger
+- Fallback: if no `delivery_code_hash` exists, falls back to direct `markDelivered()` (backwards compatibility)
+
+**Out of scope:**
 - Customer WhatsApp "delivered" notification (later story)
 
 ---
@@ -273,7 +282,7 @@ export async function cancelOrder(orderId, cancelReason) {
   return res.json();
 }
 
-// ⏳ NOT YET WIRED: delivery code verify UI is stubbed in ActiveOrderScreen
+// ✅ WIRED: verifyDelivery called from ActiveOrderScreen delivery code modal (when picked_up)
 export async function verifyDelivery(orderId, deliveryCode) {
   const token = (await supabase.auth.getSession()).data.session?.access_token;
   const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/verify-delivery`, {
