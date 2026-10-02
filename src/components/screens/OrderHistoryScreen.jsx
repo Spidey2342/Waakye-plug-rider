@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { motion } from 'motion/react';
 import { Store, Loader2, PackageX, Home, History, Wallet, User } from 'lucide-react';
 import { fetchOrderHistory } from '../../lib/historyApi';
+import { getStatusLabel } from '../../lib/orderStatusLabels';
 
 function formatDateLabel(isoString) {
   const date = new Date(isoString);
@@ -102,7 +103,7 @@ export function OrderHistoryScreen({ rider, onNavigate }) {
                               <p className="font-bold text-sm text-gray-300">—</p>
                             )}
                             <p className={`text-[10px] font-bold uppercase ${isDelivered ? 'text-emerald-600' : 'text-red-400'}`}>
-                              {isDelivered ? 'Delivered' : 'Cancelled'}
+                              {getStatusLabel(order.status)}
                             </p>
                           </div>
                         </motion.div>
