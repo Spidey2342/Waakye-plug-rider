@@ -131,6 +131,7 @@ available → rider_assigned → picked_up → delivered
 - Compare against `delivery_code_hash` in database (bcrypt)
 - Rate limit: **5 wrong attempts per order per 15 minutes** (uses `begin_auth_attempt` / `record_auth_failure` pattern)
 - On success: `status` → `delivered` (commission trigger fires automatically)
+- If `delivery_code_hash` is missing, return clear error — delivery cannot be completed without a valid hash
 
 **Response (success):**
 ```json
@@ -148,7 +149,7 @@ available → rider_assigned → picked_up → delivered
 - `400` Invalid delivery code format (not 4 digits)
 - `400` Cannot verify before pickup (status = `rider_assigned`)
 - `400` Order already delivered
-- `400` Delivery code not set (column missing or null)
+- `400` Delivery code not set (delivery_code_hash missing or null)
 - `400` Invalid delivery code (wrong code)
 - `429` Too many incorrect attempts (rate limited)
 

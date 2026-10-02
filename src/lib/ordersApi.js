@@ -7,6 +7,11 @@ import { supabase } from './supabase';
 // Do not list delivery_lat/lng explicitly: missing columns would break the
 // whole select before the customer-app migration lands.
 
+// SECURITY: delivery_code (plaintext 4-digit code) is selected via `*` but
+// MUST NEVER be displayed to riders. The rider UI only shows a code input
+// field; the customer shows their code to the rider, who enters it to verify.
+// Verification happens via verifyDelivery edge function using delivery_code_hash.
+
 // Vendor fields every order query needs: latitude/longitude are the real
 // GPS coordinates a vendor can set from their Settings tab ("Use My
 // Current Location"). When present, the rider app should use them
@@ -129,8 +134,10 @@ export async function markPickedUp(orderId) {
   return data;
 }
 
-// Marking delivered is what fires the commission trigger already set up
-// in the database — no commission math needs to happen in this app code.
+// Marking delivered fires the commission trigger in the database.
+// DO NOT USE for rider delivery confirmation: riders MUST use verifyDelivery()
+// which validates the customer's 4-digit code against delivery_code_hash.
+// This function is retained for admin/system use only.
 export async function markDelivered(orderId) {
   const { data, error } = await supabase
     .from('orders')

@@ -18,7 +18,6 @@ import {
 } from 'lucide-react';
 import {
   markPickedUp,
-  markDelivered,
   updateRiderLocation,
   verifyDelivery,
   cancelOrderVendorClosed,
@@ -105,34 +104,6 @@ function distanceToPolylineMeters(point, coordinates) {
     if (d < min) min = d;
   }
   return min;
-}
-
-function formatDeliveryDigits(code) {
-  if (code == null || code === '') return '';
-  const digits = String(code).replace(/\D/g, '');
-  if (!digits) return '';
-  return digits.slice(-4).padStart(4, '0');
-}
-
-function DeliveryDigitRow({ code, size = 'lg' }) {
-  const formatted = formatDeliveryDigits(code);
-  if (!formatted) return null;
-  const box =
-    size === 'lg'
-      ? 'w-12 h-14 text-3xl rounded-xl'
-      : 'w-9 h-10 text-xl rounded-lg';
-  return (
-    <div className="flex justify-center gap-2">
-      {formatted.split('').map((digit, i) => (
-        <span
-          key={`${digit}-${i}`}
-          className={`${box} inline-flex items-center justify-center font-mono font-bold tabular-nums bg-white border-2 border-[#7a1d1d]/25 text-[#7a1d1d] shadow-sm`}
-        >
-          {digit}
-        </span>
-      ))}
-    </div>
-  );
 }
 
 export function ActiveOrderScreen({ order: initialOrder, riderId, onDelivered, onReleased, onBack }) {
@@ -515,23 +486,15 @@ export function ActiveOrderScreen({ order: initialOrder, riderId, onDelivered, o
   }, [order.id]);
 
   const handleConfirmDelivered = useCallback(async () => {
-    const code = formatDeliveryDigits(deliveryCodeInput);
-    if (code.length !== 4) {
+    if (deliveryCodeInput.length !== 4) {
       setMapError('Enter all 4 numbers the customer shows you.');
       return;
     }
 
     setActionLoading(true);
     try {
-      let updated;
-      if (order.delivery_code_hash) {
-        const result = await verifyDelivery(order.id, code);
-        updated = result.order ?? result;
-      } else if (order.delivery_code && code !== formatDeliveryDigits(order.delivery_code)) {
-        throw new Error('Code does not match this order. Ask the customer to open their order in Waakye Plug.');
-      } else {
-        updated = await markDelivered(order.id);
-      }
+      const result = await verifyDelivery(order.id, deliveryCodeInput);
+      const updated = result.order ?? result;
       setShowDeliverConfirm(false);
       setDeliveryCodeInput('');
       onDelivered(updated);
@@ -540,7 +503,7 @@ export function ActiveOrderScreen({ order: initialOrder, riderId, onDelivered, o
     } finally {
       setActionLoading(false);
     }
-  }, [order.id, order.delivery_code, order.delivery_code_hash, deliveryCodeInput, onDelivered]);
+  }, [order.id, deliveryCodeInput, onDelivered]);
 
   const handleVendorClosedCancel = useCallback(async () => {
     setActionLoading(true);
@@ -716,19 +679,6 @@ export function ActiveOrderScreen({ order: initialOrder, riderId, onDelivered, o
           </div>
         </div>
 
-        {order.delivery_code && order.status !== 'delivered' && (
-          <div className="mb-4 rounded-2xl border-2 border-dashed border-[#7a1d1d]/30 bg-white p-4 text-center">
-            <p className="text-[10px] font-bold uppercase tracking-wide text-gray-500 mb-1">
-              Customer delivery code
-            </p>
-            <DeliveryDigitRow code={order.delivery_code} size="lg" />
-            <p className="text-xs text-gray-500 mt-2">
-              {order.status === 'picked_up'
-                ? 'Ask the customer to show this same code before you hand over the food.'
-                : 'You will confirm this code with the customer at dropoff.'}
-            </p>
-          </div>
-        )}
 
         {order.status === 'rider_assigned' && (
           <>
@@ -820,15 +770,9 @@ export function ActiveOrderScreen({ order: initialOrder, riderId, onDelivered, o
               className="bg-white rounded-t-3xl w-full max-w-md p-6 pb-[calc(env(safe-area-inset-bottom)+24px)]"
             >
               <p className="font-bold text-lg mb-1">Confirm delivery</p>
-              <p className="text-sm text-gray-500 mb-3">
-                Ask the customer for their <span className="font-bold text-gray-900">4 numbers</span>, then type them below.
+              <p className="text-sm text-gray-500 mb-5">
+                Ask the customer for their <span className="font-bold text-gray-900">4-digit code</span>, then type it below to complete the delivery.
               </p>
-              {order.delivery_code ? (
-                <div className="mb-4">
-                  <p className="text-[10px] font-bold uppercase text-gray-400 mb-2 text-center">Your code for this order</p>
-                  <DeliveryDigitRow code={order.delivery_code} size="sm" />
-                </div>
-              ) : null}
               <input
                 type="text"
                 inputMode="numeric"
