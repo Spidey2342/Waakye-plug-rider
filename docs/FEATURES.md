@@ -37,8 +37,8 @@ Every screen file, every `src/lib` module, and every edge function as of the doc
 ### `ActiveOrderScreen.jsx`
 - Current assigned order (`rider_assigned` | `picked_up`)
 - Map + OSRM route via `mapService` (vendor GPS preferred over free-text geocode)
-- Displays **`orders.delivery_code`** (4 digits) — same code customer sees in Waakye-Plug2; see [DELIVERY_CONFIRMATION_CODE.md](DELIVERY_CONFIRMATION_CODE.md)
-- Actions: mark picked up; **confirm delivery code** → `verifyDelivery` edge function (or legacy `markDelivered` if no hash); report issue (`issuesApi`)
+- **Rider does NOT see the delivery_code** — only shows an input field for the rider to enter the code the customer shows them
+- Actions: mark picked up; **confirm delivery code** → `verifyDelivery` edge function (bcrypt hash verification only, no fallback); report issue (`issuesApi`)
 - **Chat Support** opens WhatsApp to `SUPPORT_WHATSAPP_NUMBER = '233599995651'` with **TODO to confirm**
 
 ### `EarningsScreen.jsx`
