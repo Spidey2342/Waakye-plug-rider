@@ -1,5 +1,4 @@
 import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import * as bcrypt from 'https://deno.land/x/bcrypt@v0.4.1/mod.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -167,16 +166,18 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Verify the delivery code against the stored hash
-    // Assuming bcrypt is used (most secure for this use case).
-    // If schema uses SHA-256 instead, replace with a SHA comparison.
-    let codeMatches = false;
-    try {
-      codeMatches = await bcrypt.compare(delivery_code, order.delivery_code_hash);
-    } catch (compareError) {
+    // Verify the delivery code against the stored hash using pgcrypto RPC
+    // The RPC verify_delivery_code_hash handles pgcrypto crypt/bf hashes
+    // that were set by the orders_set_delivery_code trigger.
+    const { data: codeMatches, error: verifyError } = await supabaseAdmin.rpc(
+      'verify_delivery_code_hash',
+      { p_code: delivery_code, p_hash: order.delivery_code_hash }
+    );
+
+    if (verifyError) {
       // Hash comparison failed — likely means the hash format is wrong or
       // corrupted. Log the error but don't expose details to the client.
-      console.error('Delivery code hash comparison error:', compareError);
+      console.error('Delivery code hash comparison error:', verifyError);
       await supabaseAdmin.rpc('record_auth_failure', { p_bucket: rateLimitBucket });
       return jsonResponse(500, {
         error: 'Failed to verify delivery code. Contact support.',
