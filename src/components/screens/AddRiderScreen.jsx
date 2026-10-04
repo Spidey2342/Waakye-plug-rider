@@ -1,13 +1,13 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   ChevronLeft,
   Bike,
   Footprints,
   Camera,
-  Plus,
+  Images,
   User,
   Phone,
   MapPin,
@@ -52,10 +52,33 @@ const slideVariants = {
   exit: (direction) => ({ x: direction > 0 ? -40 : 40, opacity: 0 }),
 };
 
-function PhotoCaptureTile({ label, hint, preview, capture, onPick, onError }) {
+function PhotoCaptureTile({ label, hint, preview, cameraFacing = 'environment', onPick, onError }) {
+  const galleryInputRef = useRef(null);
+  const cameraInputRef = useRef(null);
+
+  async function handleFileChange(e) {
+    try {
+      const file = readPickedImageFile(e.target);
+      if (!file) return;
+      const url = await loadFilePreview(file);
+      onPick(file, url);
+    } catch (err) {
+      onError(err.message || 'Could not use that photo.');
+      e.target.value = '';
+    }
+  }
+
+  function openGallery() {
+    galleryInputRef.current?.click();
+  }
+
+  function openCamera() {
+    cameraInputRef.current?.click();
+  }
+
   return (
-    <div className="flex flex-col items-center">
-      <label className="w-full aspect-[4/3] max-h-36 rounded-2xl border-2 border-dashed border-gray-300 bg-[#faf6ee] flex flex-col items-center justify-center gap-1 overflow-hidden cursor-pointer active:scale-[0.98] transition-transform relative">
+    <div className="flex flex-col items-center w-full">
+      <div className="w-full aspect-[4/3] max-h-36 rounded-2xl border-2 border-dashed border-gray-300 bg-[#faf6ee] flex flex-col items-center justify-center gap-1 overflow-hidden relative">
         {preview ? (
           <img src={preview} className="w-full h-full object-cover" alt={label} />
         ) : (
@@ -64,29 +87,45 @@ function PhotoCaptureTile({ label, hint, preview, capture, onPick, onError }) {
             <span className="text-[10px] font-bold text-gray-500 uppercase text-center px-2">{label}</span>
           </>
         )}
-        <input
-          type="file"
-          accept="image/*"
-          capture={capture}
-          onChange={async (e) => {
-            try {
-              const file = readPickedImageFile(e.target);
-              if (!file) return;
-              const url = await loadFilePreview(file);
-              onPick(file, url);
-            } catch (err) {
-              onError(err.message || 'Could not use that photo.');
-              e.target.value = '';
-            }
-          }}
-          className="hidden"
-        />
-        {!preview && (
-          <span className="absolute bottom-2 right-2 w-7 h-7 rounded-full bg-[#7a1d1d] flex items-center justify-center shadow-md pointer-events-none">
-            <Plus className="w-4 h-4 text-white" />
-          </span>
-        )}
-      </label>
+      </div>
+
+      <div className="flex gap-2 w-full mt-2">
+        <button
+          type="button"
+          onClick={openGallery}
+          className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl border border-gray-200 bg-white text-[11px] font-bold text-gray-700 active:scale-[0.98] transition-transform"
+        >
+          <Images className="w-3.5 h-3.5 shrink-0" />
+          Gallery
+        </button>
+        <button
+          type="button"
+          onClick={openCamera}
+          className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-[#7a1d1d] text-white text-[11px] font-bold active:scale-[0.98] transition-transform"
+        >
+          <Camera className="w-3.5 h-3.5 shrink-0" />
+          Camera
+        </button>
+      </div>
+
+      <input
+        ref={galleryInputRef}
+        type="file"
+        accept="image/*"
+        onChange={handleFileChange}
+        className="sr-only"
+        aria-hidden
+      />
+      <input
+        ref={cameraInputRef}
+        type="file"
+        accept="image/*"
+        capture={cameraFacing}
+        onChange={handleFileChange}
+        className="sr-only"
+        aria-hidden
+      />
+
       {hint && <p className="text-[10px] text-gray-400 text-center mt-1.5 leading-snug px-1">{hint}</p>}
     </div>
   );
@@ -328,14 +367,16 @@ export function AddRiderScreen({ onBack, onSubmit, mode = 'admin', error, onErro
                   <div>
                     <p className="font-bold text-base mb-1">Verify your identity</p>
                     <p className="text-xs text-gray-500 mb-4 leading-relaxed">
-                      Take a clear selfie and photos of the front and back of your Ghana Card. Make sure details are readable and glare-free.
+                      Use <span className="font-bold text-gray-700">Gallery</span> or{' '}
+                      <span className="font-bold text-gray-700">Camera</span> for your selfie and Ghana Card (front and back).
+                      Make sure details are readable and glare-free.
                     </p>
                     <div className="grid grid-cols-1 gap-3">
                       <PhotoCaptureTile
                         label="Selfie"
                         hint="Face the camera, good lighting"
                         preview={previews.selfie}
-                        capture="user"
+                        cameraFacing="user"
                         onPick={(file, url) => setKycPhoto('selfie', file, url)}
                         onError={setPickError}
                       />
@@ -344,7 +385,7 @@ export function AddRiderScreen({ onBack, onSubmit, mode = 'admin', error, onErro
                           label="Card front"
                           hint="All corners visible"
                           preview={previews.ghana_card_front}
-                          capture="environment"
+                          cameraFacing="environment"
                           onPick={(file, url) => setKycPhoto('ghana_card_front', file, url)}
                           onError={setPickError}
                         />
@@ -352,7 +393,7 @@ export function AddRiderScreen({ onBack, onSubmit, mode = 'admin', error, onErro
                           label="Card back"
                           hint="All corners visible"
                           preview={previews.ghana_card_back}
-                          capture="environment"
+                          cameraFacing="environment"
                           onPick={(file, url) => setKycPhoto('ghana_card_back', file, url)}
                           onError={setPickError}
                         />
