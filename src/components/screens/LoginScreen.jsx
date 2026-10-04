@@ -2,7 +2,8 @@
 
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Bike, Phone, Lock, Eye, EyeOff, ArrowRight, Loader2 } from 'lucide-react';
+import { Phone, Lock, Eye, EyeOff, ArrowRight, Loader2 } from 'lucide-react';
+import { APP_ICON_SRC } from '../../lib/constants';
 import { riderLogin } from '../../lib/riderAuth';
 import { isValidGhPhone, restrictPhoneInput, restrictPinInput } from '../../lib/formValidation';
 import { unlockOrderAlertAudio } from '../../lib/orderAlerts';
@@ -46,14 +47,14 @@ export function LoginScreen({ onSuccess, onForgotPin, onApply }) {
           transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
           className="flex flex-col items-center mb-8"
         >
-          <motion.div
+          <motion.img
+            src={APP_ICON_SRC}
+            alt="Waakye Plug Rider"
             initial={{ scale: 0.6, rotate: -12 }}
             animate={{ scale: 1, rotate: 0 }}
             transition={{ type: 'spring', stiffness: 260, damping: 18, delay: 0.1 }}
-            className="w-20 h-20 rounded-3xl bg-[#7a1d1d] flex items-center justify-center shadow-lg mb-5"
-          >
-            <Bike className="w-9 h-9 text-white" strokeWidth={2} />
-          </motion.div>
+            className="w-20 h-20 rounded-3xl shadow-lg mb-5 object-cover bg-white"
+          />
 
           <h1 className="text-2xl font-extrabold text-center leading-tight">
             Waakye Plug

@@ -167,7 +167,7 @@ Every screen file, every `src/lib` module, and every edge function as of the doc
 | `vite.config.js` | Vite config |
 | `eslint.config.js` | ESLint |
 | `supabase/config.toml` | Supabase CLI config |
-| `public/favicon.svg`, `public/icons.svg` | Static assets |
+| `public/favicon-rider.png`, `public/icons.svg` | App icon + static assets |
 
 ## Constants & live URLs (reference)
 

@@ -26,6 +26,7 @@ import {
   restrictPhoneInput,
   restrictPinInput,
 } from '../../lib/formValidation';
+import { APP_ICON_SRC } from '../../lib/constants';
 import { loadFilePreview, readPickedImageFile } from '../../lib/imagePick';
 
 const STEPS = ['Your Details', 'ID Verification', 'Work Details', 'Emergency Contact', 'Almost Done'];
@@ -202,13 +203,11 @@ export function AddRiderScreen({ onBack, onSubmit, mode = 'admin', error, onErro
             <ChevronLeft className="w-5 h-5" />
           </button>
           <h1 className="font-bold text-lg">{isApply ? 'Apply to Ride' : 'Add Rider'}</h1>
-          <motion.div
-            animate={{ rotate: [-8, 8, -8] }}
-            transition={{ duration: 2.5, repeat: Infinity, ease: 'easeInOut' }}
-            className="w-9 h-9 rounded-full bg-[#7a1d1d]/10 flex items-center justify-center"
-          >
-            <Bike className="w-4 h-4 text-[#7a1d1d]" />
-          </motion.div>
+          <img
+            src={APP_ICON_SRC}
+            alt=""
+            className="w-9 h-9 rounded-full object-cover bg-white border border-gray-200"
+          />
         </div>
 
         <div className="max-w-md mx-auto px-4 pb-4">
