@@ -24,7 +24,6 @@ import {
   unlockOrderAlertAudio,
 } from '../../lib/orderAlerts';
 import { OrderItemsList } from '../OrderItemsList';
-import { LocationPicker } from '../LocationPicker';
 
 // A GPS fix worse than this (meters) is a network/IP-based guess, not a
 // real GPS reading — same threshold ActiveOrderScreen uses. We just skip
@@ -134,9 +133,6 @@ export function HomeScreen({ rider, onNavigate, onOrderAccepted }) {
   const [error, setError] = useState(null);
   const [soundReady, setSoundReady] = useState(() => isOrderAlertAudioReady());
   const [riderPosition, setRiderPosition] = useState(null);
-  const [manualPosition, setManualPosition] = useState(null);
-  const [showLocationPicker, setShowLocationPicker] = useState(false);
-  const [locationSource, setLocationSource] = useState(null);
   const lastLocationSyncAtRef = useRef(0);
   const knownOrderIdsRef = useRef(null);
   const isOnlineRef = useRef(isOnline);
@@ -144,51 +140,43 @@ export function HomeScreen({ rider, onNavigate, onOrderAccepted }) {
     isOnlineRef.current = isOnline;
   }, [isOnline]);
 
-  // Live location while online. When a manual position is set, it overrides
-  // GPS entirely — the watch still runs (so we can detect if GPS comes back
-  // good) but we use the manual pin for distance calculations and DB writes.
+  // Live location while online. This previously didn't exist at all on
+  // this screen — the rider's position was only ever read once a delivery
+  // was already active. Going online now starts a GPS watch that (a)
+  // drives the real distance/ETA on each order card above, and (b) keeps
+  // the rider's row in Supabase current so a customer/vendor/admin view
+  // can see the rider's live position even before they accept an order.
   useEffect(() => {
     if (!isOnline || !('geolocation' in navigator)) {
       setRiderPosition(null);
-      setLocationSource(null);
       return;
     }
 
     const watchId = navigator.geolocation.watchPosition(
       (pos) => {
         const accuracy = pos.coords.accuracy ?? null;
-        // Never trust a fix this bad — it can be off by entire cities.
-        if (accuracy != null && accuracy > UNUSABLE_ACCURACY_M) {
-          setLocationSource('gps-unusable');
-          return;
-        }
+        // Same guard as ActiveOrderScreen: never trust a fix this bad,
+        // not even as a fallback — it can be off by entire cities.
+        if (accuracy != null && accuracy > UNUSABLE_ACCURACY_M) return;
 
         const next = { lat: pos.coords.latitude, lng: pos.coords.longitude };
         setRiderPosition(next);
-        setLocationSource(accuracy != null && accuracy <= 100 ? 'gps-good' : 'gps-weak');
+
+        const now = Date.now();
+        if (now - lastLocationSyncAtRef.current < 8000) return;
+        lastLocationSyncAtRef.current = now;
+        updateRiderLocation(rider.id, next.lat, next.lng);
       },
       () => {
-        setLocationSource('gps-denied');
+        // Silent on the list screen — ActiveOrderScreen is the place that
+        // surfaces a location-permission error to the rider, since that's
+        // where they actually need it to navigate.
       },
       { enableHighAccuracy: true, maximumAge: 5000 }
     );
 
     return () => navigator.geolocation.clearWatch(watchId);
-  }, [isOnline]);
-
-  // Sync the active position (manual override or live GPS) to Supabase.
-  useEffect(() => {
-    if (!isOnline || !rider?.id) return;
-
-    const activePosition = manualPosition || riderPosition;
-    if (!activePosition) return;
-
-    const now = Date.now();
-    if (now - lastLocationSyncAtRef.current < 8000) return;
-    lastLocationSyncAtRef.current = now;
-
-    updateRiderLocation(rider.id, activePosition.lat, activePosition.lng);
-  }, [isOnline, rider?.id, manualPosition, riderPosition]);
+  }, [isOnline, rider?.id]);
 
   const loadOrders = useCallback(async ({ silent = false } = {}) => {
     if (!silent) setLoading(true);
@@ -277,22 +265,9 @@ export function HomeScreen({ rider, onNavigate, onOrderAccepted }) {
 
   const fullName = rider?.profiles?.full_name ?? 'Rider';
   const photoUrl = rider?.photo_url;
-  const activePosition = manualPosition || riderPosition;
-  const showLocationPrompt = isOnline && !activePosition && locationSource !== 'gps-good';
 
   return (
     <div className="min-h-[100dvh] bg-[#fefaf4] flex flex-col [webkit-tap-highlight-color:transparent]">
-      {showLocationPicker && (
-        <LocationPicker
-          initialPosition={manualPosition || riderPosition}
-          onConfirm={(pos) => {
-            setManualPosition(pos);
-            setShowLocationPicker(false);
-          }}
-          onCancel={() => setShowLocationPicker(false)}
-        />
-      )}
-
       <div className="flex-1 overflow-y-auto pb-24">
         <div className="max-w-md mx-auto px-4 pt-6">
 
@@ -356,64 +331,6 @@ export function HomeScreen({ rider, onNavigate, onOrderAccepted }) {
             </AnimatePresence>
           </motion.div>
 
-          {showLocationPrompt && (
-            <motion.div
-              initial={{ opacity: 0, y: -10 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="w-full mb-4 bg-blue-50 border border-blue-200 rounded-2xl px-4 py-3"
-            >
-              <p className="text-sm font-bold text-blue-900 mb-2">Set your location to see nearby orders</p>
-              <p className="text-xs text-blue-800/80 mb-3">
-                {locationSource === 'gps-denied'
-                  ? 'Location access denied. You can search for your area or set it on the map.'
-                  : locationSource === 'gps-unusable'
-                    ? 'Location signal too weak. Search for your area or set it manually.'
-                    : 'Waiting for location...'}
-              </p>
-              <button
-                onClick={() => setShowLocationPicker(true)}
-                className="w-full bg-[#7a1d1d] text-white py-2.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2"
-              >
-                <MapPin className="w-4 h-4" />
-                Set my location
-              </button>
-            </motion.div>
-          )}
-
-          {manualPosition && isOnline && (
-            <motion.div
-              initial={{ opacity: 0, y: -10 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="w-full mb-4 bg-[#faf6ee] border border-[#7a1d1d]/20 rounded-2xl px-4 py-3"
-            >
-              <div className="flex items-start justify-between">
-                <div className="flex-1">
-                  <p className="text-sm font-bold text-[#7a1d1d] mb-1">Using your set location</p>
-                  <p className="text-xs text-gray-600">
-                    {locationSource === 'gps-good'
-                      ? 'GPS now available — tap to switch back'
-                      : 'You set this location manually'}
-                  </p>
-                </div>
-                <button
-                  onClick={() => setShowLocationPicker(true)}
-                  className="shrink-0 text-xs font-bold text-[#7a1d1d] underline ml-2"
-                >
-                  Change
-                </button>
-              </div>
-              {locationSource === 'gps-good' && (
-                <button
-                  onClick={() => setManualPosition(null)}
-                  className="w-full mt-2 bg-white border border-gray-200 text-gray-700 py-2 rounded-lg font-bold text-xs"
-                >
-                  <Navigation className="w-3 h-3 inline mr-1" />
-                  Use current location instead
-                </button>
-              )}
-            </motion.div>
-          )}
-
           {isOnline && !soundReady && (
             <button
               type="button"
@@ -464,7 +381,7 @@ export function HomeScreen({ rider, onNavigate, onOrderAccepted }) {
                   index={i}
                   onAccept={handleAccept}
                   accepting={accepting}
-                  riderPosition={activePosition}
+                  riderPosition={riderPosition}
                 />
               ))}
             </AnimatePresence>
