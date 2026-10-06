@@ -37,6 +37,7 @@ import { SUPPORT_WHATSAPP_NUMBER } from '../../lib/constants';
 import { restrictNotesInput } from '../../lib/formValidation';
 import { OrderItemsList } from '../OrderItemsList';
 import { parseOrderItems } from '../../lib/orderItems';
+import { UNUSABLE_ACCURACY_M, gpsErrorKind, gpsProblemMessage } from '../../lib/riderGps';
 
 const STAGES = ['Heading to Vendor', 'At Vendor', 'Heading to Customer', 'Delivered'];
 const ARRIVAL_THRESHOLD_M = 100;
@@ -50,13 +51,13 @@ const STEP_THRESHOLD_M = 40;
 // warn the rider instead of silently trusting it.
 const MIN_USABLE_ACCURACY_M = 400;
 
-// A fix worse than THIS is not a "low-accuracy GPS reading" anymore — it's
+// A fix worse than UNUSABLE_ACCURACY_M (~3 km, from lib/riderGps) is not a
+// "low-accuracy GPS reading" anymore — it's
 // an IP/network-based guess (can be off by entire cities, e.g. reporting
 // Accra while the rider is actually in Ho). We never use a fix this bad for
 // anything, even as a first-load fallback: no marker, no route, no ETA.
 // Better to show "waiting for GPS" than to plot the rider hundreds of
 // kilometers from where they actually are.
-const UNUSABLE_ACCURACY_M = 3000;
 
 // Default map center when no vendor/delivery pin is known yet. NEVER Accra —
 // production riders operate in Ho / Volta. Prefer vendor coords on mount when
@@ -123,6 +124,9 @@ export function ActiveOrderScreen({ order: initialOrder, riderId, onDelivered, o
   const [customerCoords, setCustomerCoords] = useState(null);
   const [riderPosition, setRiderPosition] = useState(null);
   const positionAccuracyRef = useRef(null);
+  // True when the device stopped giving GPS (permission revoked, no signal).
+  // Position comes only from device GPS — there is no manual override.
+  const [gpsLost, setGpsLost] = useState(false);
   const [route, setRoute] = useState(null);
   const [routeRefetchTick, setRouteRefetchTick] = useState(0);
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
@@ -301,10 +305,7 @@ export function ActiveOrderScreen({ order: initialOrder, riderId, onDelivered, o
     if (accuracy != null && accuracy > UNUSABLE_ACCURACY_M) {
       // Do not plot the rider marker — a multi-km network guess can place
       // them in another city (e.g. Accra while they are in Ho).
-      setMapError(
-        `Waiting for GPS — current reading is ~${Math.round(accuracy / 1000)}km off (network/Wi-Fi guess, not real GPS). ` +
-        `Your marker stays hidden until Precise/GPS location locks in. Enable Precise Location, go outdoors, and use a phone (not a laptop).`
-      );
+      setMapError(gpsProblemMessage('inaccurate', accuracy));
       return;
     }
 
@@ -319,6 +320,7 @@ export function ActiveOrderScreen({ order: initialOrder, riderId, onDelivered, o
 
     positionAccuracyRef.current = accuracy;
     setRiderPosition(next);
+    setGpsLost(false);
     if (isLowAccuracy) {
       setMapError(`Location is approximate (±${Math.round(accuracy)}m). Move to open sky or enable precise/GPS location for accurate directions.`);
     } else if (accuracy != null) {
@@ -342,7 +344,10 @@ export function ActiveOrderScreen({ order: initialOrder, riderId, onDelivered, o
 
     const watchId = navigator.geolocation.watchPosition(
       handlePosition,
-      () => setMapError('Location access is off — turn it on to see your live position and get directions.'),
+      (err) => {
+        setGpsLost(true);
+        setMapError(gpsProblemMessage(gpsErrorKind(err)));
+      },
       { enableHighAccuracy: true, maximumAge: 5000 }
     );
     return () => navigator.geolocation.clearWatch(watchId);
@@ -363,6 +368,10 @@ export function ActiveOrderScreen({ order: initialOrder, riderId, onDelivered, o
   }, [riderId, riderPosition]);
 
   const hasPosition = Boolean(riderPosition);
+  // Orders can only move forward (picked up / delivered) with a usable fix
+  // from the device's own GPS.
+  const gpsUsable = hasPosition && !gpsLost;
+  const noGeolocation = typeof navigator === 'undefined' || !('geolocation' in navigator);
   useEffect(() => {
     if (!riderPosition || !target) return;
 
@@ -646,10 +655,10 @@ export function ActiveOrderScreen({ order: initialOrder, riderId, onDelivered, o
         )}
       </div>
 
-      {mapError && (
+      {(mapError || noGeolocation) && (
         <div className="mx-4 mt-2 flex items-start gap-2 bg-amber-50 text-amber-700 text-xs font-medium px-3 py-2 rounded-lg">
           <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-          <span>{mapError}</span>
+          <span>{mapError || gpsProblemMessage('unsupported')}</span>
         </div>
       )}
 
@@ -696,12 +705,18 @@ export function ActiveOrderScreen({ order: initialOrder, riderId, onDelivered, o
         </div>
 
 
+        {!gpsUsable && (order.status === 'rider_assigned' || order.status === 'picked_up') && (
+          <p className="text-xs font-medium text-amber-700 bg-amber-50 rounded-xl px-3 py-2 mb-3">
+            Waiting for a usable GPS fix from your phone before you can continue this order.
+          </p>
+        )}
+
         {order.status === 'rider_assigned' && (
           <>
             <motion.button
               whileTap={{ scale: 0.98 }}
               onClick={handleMarkPickedUp}
-              disabled={actionLoading}
+              disabled={actionLoading || !gpsUsable}
               className="w-full bg-[#7a1d1d] text-white py-4 rounded-2xl font-bold text-base flex items-center justify-center gap-2 disabled:opacity-60 mb-3"
             >
               {actionLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
@@ -726,7 +741,7 @@ export function ActiveOrderScreen({ order: initialOrder, riderId, onDelivered, o
               setDeliveryCodeInput('');
               setShowDeliverConfirm(true);
             }}
-            disabled={actionLoading}
+            disabled={actionLoading || !gpsUsable}
             className="w-full bg-[#7a1d1d] text-white py-4 rounded-2xl font-bold text-base flex items-center justify-center gap-2 disabled:opacity-60 mb-3"
           >
             <CheckCircle2 className="w-4 h-4" />

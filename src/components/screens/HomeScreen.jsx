@@ -12,6 +12,7 @@ import {
   Wallet,
   User,
   Loader2,
+  AlertCircle,
 } from 'lucide-react';
 import { fetchAvailableOrders, acceptOrder, setRiderOnlineStatus, updateRiderLocation } from '../../lib/ordersApi';
 import { supabase } from '../../lib/supabase';
@@ -24,11 +25,16 @@ import {
   unlockOrderAlertAudio,
 } from '../../lib/orderAlerts';
 import { OrderItemsList } from '../OrderItemsList';
+import {
+  UNUSABLE_ACCURACY_M,
+  getUsableGpsFix,
+  gpsErrorKind,
+  gpsProblemMessage,
+} from '../../lib/riderGps';
 
-// A GPS fix worse than this (meters) is a network/IP-based guess, not a
-// real GPS reading — same threshold ActiveOrderScreen uses. We just skip
-// showing a distance rather than displaying one built on a bad fix.
-const UNUSABLE_ACCURACY_M = 3000;
+// A GPS fix worse than UNUSABLE_ACCURACY_M is a network/IP-based guess, not
+// a real GPS reading — same threshold ActiveOrderScreen uses. It is never
+// used for distance, DB writes, or matching.
 
 // Rough average moped speed in Ghanaian urban/campus traffic, used only to
 // turn a real measured distance into a rough ETA. This is an estimate on
@@ -36,7 +42,7 @@ const UNUSABLE_ACCURACY_M = 3000;
 // rider position yet, we don't show either figure.
 const ASSUMED_SPEED_KMH = 22;
 
-function OrderCard({ order, index, onAccept, accepting, riderPosition }) {
+function OrderCard({ order, index, onAccept, accepting, riderPosition, gpsReady }) {
   const vendorName = order.vendors?.business_name ?? 'Vendor';
   const vendorLocation = order.vendors?.location ?? '';
   const vendorLat = order.vendors?.latitude;
@@ -106,7 +112,7 @@ function OrderCard({ order, index, onAccept, accepting, riderPosition }) {
       <motion.button
         whileTap={{ scale: 0.98 }}
         onClick={() => onAccept(order.id)}
-        disabled={accepting === order.id}
+        disabled={accepting === order.id || !gpsReady}
         className="w-full bg-[#7a1d1d] text-white py-3.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2 disabled:opacity-60"
       >
         {accepting === order.id ? (
@@ -114,6 +120,8 @@ function OrderCard({ order, index, onAccept, accepting, riderPosition }) {
             <Loader2 className="w-4 h-4 animate-spin" />
             Accepting...
           </>
+        ) : !gpsReady ? (
+          <>Waiting for GPS…</>
         ) : (
           <>
             Accept Order
@@ -133,6 +141,10 @@ export function HomeScreen({ rider, onNavigate, onOrderAccepted }) {
   const [error, setError] = useState(null);
   const [soundReady, setSoundReady] = useState(() => isOrderAlertAudioReady());
   const [riderPosition, setRiderPosition] = useState(null);
+  // Plain-language reason the device GPS can't be used (denied, unavailable,
+  // too inaccurate). While set, the rider can't go online or accept orders.
+  const [gpsIssue, setGpsIssue] = useState(null);
+  const [checkingGps, setCheckingGps] = useState(false);
   const lastLocationSyncAtRef = useRef(0);
   const knownOrderIdsRef = useRef(null);
   const isOnlineRef = useRef(isOnline);
@@ -146,9 +158,15 @@ export function HomeScreen({ rider, onNavigate, onOrderAccepted }) {
   // drives the real distance/ETA on each order card above, and (b) keeps
   // the rider's row in Supabase current so a customer/vendor/admin view
   // can see the rider's live position even before they accept an order.
+  // Position comes only from device GPS — there is no manual override.
   useEffect(() => {
-    if (!isOnline || !('geolocation' in navigator)) {
+    if (!isOnline) {
       setRiderPosition(null);
+      return;
+    }
+    if (!('geolocation' in navigator)) {
+      setRiderPosition(null);
+      setGpsIssue(gpsProblemMessage('unsupported'));
       return;
     }
 
@@ -157,20 +175,25 @@ export function HomeScreen({ rider, onNavigate, onOrderAccepted }) {
         const accuracy = pos.coords.accuracy ?? null;
         // Same guard as ActiveOrderScreen: never trust a fix this bad,
         // not even as a fallback — it can be off by entire cities.
-        if (accuracy != null && accuracy > UNUSABLE_ACCURACY_M) return;
+        if (accuracy != null && accuracy > UNUSABLE_ACCURACY_M) {
+          setGpsIssue(gpsProblemMessage('inaccurate', accuracy));
+          return;
+        }
 
         const next = { lat: pos.coords.latitude, lng: pos.coords.longitude };
         setRiderPosition(next);
+        setGpsIssue(null);
 
         const now = Date.now();
         if (now - lastLocationSyncAtRef.current < 8000) return;
         lastLocationSyncAtRef.current = now;
         updateRiderLocation(rider.id, next.lat, next.lng);
       },
-      () => {
-        // Silent on the list screen — ActiveOrderScreen is the place that
-        // surfaces a location-permission error to the rider, since that's
-        // where they actually need it to navigate.
+      (err) => {
+        // Lost GPS (permission revoked, no signal): stop using the last fix
+        // and tell the rider plainly what to fix on their phone.
+        setRiderPosition(null);
+        setGpsIssue(gpsProblemMessage(gpsErrorKind(err)));
       },
       { enableHighAccuracy: true, maximumAge: 5000 }
     );
@@ -234,9 +257,21 @@ export function HomeScreen({ rider, onNavigate, onOrderAccepted }) {
   }
 
   async function toggleOnline() {
+    if (checkingGps) return;
     const next = !isOnline;
     if (next) {
+      // Must run synchronously inside the tap so the browser lets us unlock audio.
       enableSoundAlerts();
+      // Going online requires a fresh, usable fix from the device's own GPS.
+      setCheckingGps(true);
+      const fix = await getUsableGpsFix();
+      setCheckingGps(false);
+      if (!fix.ok) {
+        setGpsIssue(fix.message);
+        return;
+      }
+      setGpsIssue(null);
+      setRiderPosition(fix.position);
     }
     setIsOnline(next);
     try {
@@ -248,6 +283,7 @@ export function HomeScreen({ rider, onNavigate, onOrderAccepted }) {
   }
 
   async function handleAccept(orderId) {
+    if (!gpsReady) return;
     setAccepting(orderId);
     setError(null);
     // Drop from the list immediately so other riders (and double-taps) don't keep hammering Accept.
@@ -265,6 +301,7 @@ export function HomeScreen({ rider, onNavigate, onOrderAccepted }) {
 
   const fullName = rider?.profiles?.full_name ?? 'Rider';
   const photoUrl = rider?.photo_url;
+  const gpsReady = Boolean(riderPosition) && !gpsIssue;
 
   return (
     <div className="min-h-[100dvh] bg-[#fefaf4] flex flex-col [webkit-tap-highlight-color:transparent]">
@@ -293,12 +330,13 @@ export function HomeScreen({ rider, onNavigate, onOrderAccepted }) {
 
             <button
               onClick={toggleOnline}
+              disabled={checkingGps}
               className={`relative flex items-center gap-2 pl-3 pr-1 py-1 rounded-full shrink-0 transition-colors ${
                 isOnline ? 'bg-[#7a1d1d]/10' : 'bg-gray-100'
               }`}
             >
               <span className={`text-[10px] font-bold uppercase ${isOnline ? 'text-[#7a1d1d]' : 'text-gray-400'}`}>
-                {isOnline ? 'Online' : 'Offline'}
+                {checkingGps ? 'Checking GPS…' : isOnline ? 'Online' : 'Offline'}
               </span>
               <span className={`relative w-9 h-5 rounded-full transition-colors ${isOnline ? 'bg-[#7a1d1d]' : 'bg-gray-300'}`}>
                 <motion.span
@@ -330,6 +368,21 @@ export function HomeScreen({ rider, onNavigate, onOrderAccepted }) {
               </motion.span>
             </AnimatePresence>
           </motion.div>
+
+          {gpsIssue && (
+            <div
+              role="alert"
+              className="w-full mb-4 flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-2xl px-4 py-3"
+            >
+              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-amber-700" />
+              <div>
+                <p className="text-sm font-bold text-amber-900">
+                  {isOnline ? 'GPS needed to take orders' : 'GPS needed to go online'}
+                </p>
+                <p className="text-xs text-amber-800/90 mt-0.5">{gpsIssue}</p>
+              </div>
+            </div>
+          )}
 
           {isOnline && !soundReady && (
             <button
@@ -382,6 +435,7 @@ export function HomeScreen({ rider, onNavigate, onOrderAccepted }) {
                   onAccept={handleAccept}
                   accepting={accepting}
                   riderPosition={riderPosition}
+                  gpsReady={gpsReady}
                 />
               ))}
             </AnimatePresence>
