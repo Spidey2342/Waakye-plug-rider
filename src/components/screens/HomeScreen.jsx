@@ -12,6 +12,7 @@ import {
   Wallet,
   User,
   Loader2,
+  AlertCircle,
 } from 'lucide-react';
 import { fetchAvailableOrders, acceptOrder, setRiderOnlineStatus, updateRiderLocation } from '../../lib/ordersApi';
 import { supabase } from '../../lib/supabase';
@@ -24,12 +25,16 @@ import {
   unlockOrderAlertAudio,
 } from '../../lib/orderAlerts';
 import { OrderItemsList } from '../OrderItemsList';
-import { LocationPicker } from '../LocationPicker';
+import {
+  UNUSABLE_ACCURACY_M,
+  getUsableGpsFix,
+  gpsErrorKind,
+  gpsProblemMessage,
+} from '../../lib/riderGps';
 
-// A GPS fix worse than this (meters) is a network/IP-based guess, not a
-// real GPS reading — same threshold ActiveOrderScreen uses. We just skip
-// showing a distance rather than displaying one built on a bad fix.
-const UNUSABLE_ACCURACY_M = 3000;
+// A GPS fix worse than UNUSABLE_ACCURACY_M is a network/IP-based guess, not
+// a real GPS reading — same threshold ActiveOrderScreen uses. It is never
+// used for distance, DB writes, or matching.
 
 // Rough average moped speed in Ghanaian urban/campus traffic, used only to
 // turn a real measured distance into a rough ETA. This is an estimate on
@@ -37,7 +42,7 @@ const UNUSABLE_ACCURACY_M = 3000;
 // rider position yet, we don't show either figure.
 const ASSUMED_SPEED_KMH = 22;
 
-function OrderCard({ order, index, onAccept, accepting, riderPosition }) {
+function OrderCard({ order, index, onAccept, accepting, riderPosition, gpsReady }) {
   const vendorName = order.vendors?.business_name ?? 'Vendor';
   const vendorLocation = order.vendors?.location ?? '';
   const vendorLat = order.vendors?.latitude;
@@ -107,7 +112,7 @@ function OrderCard({ order, index, onAccept, accepting, riderPosition }) {
       <motion.button
         whileTap={{ scale: 0.98 }}
         onClick={() => onAccept(order.id)}
-        disabled={accepting === order.id}
+        disabled={accepting === order.id || !gpsReady}
         className="w-full bg-[#7a1d1d] text-white py-3.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2 disabled:opacity-60"
       >
         {accepting === order.id ? (
@@ -115,6 +120,8 @@ function OrderCard({ order, index, onAccept, accepting, riderPosition }) {
             <Loader2 className="w-4 h-4 animate-spin" />
             Accepting...
           </>
+        ) : !gpsReady ? (
+          <>Waiting for GPS…</>
         ) : (
           <>
             Accept Order
@@ -134,9 +141,10 @@ export function HomeScreen({ rider, onNavigate, onOrderAccepted }) {
   const [error, setError] = useState(null);
   const [soundReady, setSoundReady] = useState(() => isOrderAlertAudioReady());
   const [riderPosition, setRiderPosition] = useState(null);
-  const [manualPosition, setManualPosition] = useState(null);
-  const [showLocationPicker, setShowLocationPicker] = useState(false);
-  const [locationSource, setLocationSource] = useState(null);
+  // Plain-language reason the device GPS can't be used (denied, unavailable,
+  // too inaccurate). While set, the rider can't go online or accept orders.
+  const [gpsIssue, setGpsIssue] = useState(null);
+  const [checkingGps, setCheckingGps] = useState(false);
   const lastLocationSyncAtRef = useRef(0);
   const knownOrderIdsRef = useRef(null);
   const isOnlineRef = useRef(isOnline);
@@ -144,51 +152,54 @@ export function HomeScreen({ rider, onNavigate, onOrderAccepted }) {
     isOnlineRef.current = isOnline;
   }, [isOnline]);
 
-  // Live location while online. When a manual position is set, it overrides
-  // GPS entirely — the watch still runs (so we can detect if GPS comes back
-  // good) but we use the manual pin for distance calculations and DB writes.
+  // Live location while online. This previously didn't exist at all on
+  // this screen — the rider's position was only ever read once a delivery
+  // was already active. Going online now starts a GPS watch that (a)
+  // drives the real distance/ETA on each order card above, and (b) keeps
+  // the rider's row in Supabase current so a customer/vendor/admin view
+  // can see the rider's live position even before they accept an order.
+  // Position comes only from device GPS — there is no manual override.
   useEffect(() => {
-    if (!isOnline || !('geolocation' in navigator)) {
+    if (!isOnline) {
       setRiderPosition(null);
-      setLocationSource(null);
+      return;
+    }
+    if (!('geolocation' in navigator)) {
+      setRiderPosition(null);
+      setGpsIssue(gpsProblemMessage('unsupported'));
       return;
     }
 
     const watchId = navigator.geolocation.watchPosition(
       (pos) => {
         const accuracy = pos.coords.accuracy ?? null;
-        // Never trust a fix this bad — it can be off by entire cities.
+        // Same guard as ActiveOrderScreen: never trust a fix this bad,
+        // not even as a fallback — it can be off by entire cities.
         if (accuracy != null && accuracy > UNUSABLE_ACCURACY_M) {
-          setLocationSource('gps-unusable');
+          setGpsIssue(gpsProblemMessage('inaccurate', accuracy));
           return;
         }
 
         const next = { lat: pos.coords.latitude, lng: pos.coords.longitude };
         setRiderPosition(next);
-        setLocationSource(accuracy != null && accuracy <= 100 ? 'gps-good' : 'gps-weak');
+        setGpsIssue(null);
+
+        const now = Date.now();
+        if (now - lastLocationSyncAtRef.current < 8000) return;
+        lastLocationSyncAtRef.current = now;
+        updateRiderLocation(rider.id, next.lat, next.lng);
       },
-      () => {
-        setLocationSource('gps-denied');
+      (err) => {
+        // Lost GPS (permission revoked, no signal): stop using the last fix
+        // and tell the rider plainly what to fix on their phone.
+        setRiderPosition(null);
+        setGpsIssue(gpsProblemMessage(gpsErrorKind(err)));
       },
       { enableHighAccuracy: true, maximumAge: 5000 }
     );
 
     return () => navigator.geolocation.clearWatch(watchId);
-  }, [isOnline]);
-
-  // Sync the active position (manual override or live GPS) to Supabase.
-  useEffect(() => {
-    if (!isOnline || !rider?.id) return;
-
-    const activePosition = manualPosition || riderPosition;
-    if (!activePosition) return;
-
-    const now = Date.now();
-    if (now - lastLocationSyncAtRef.current < 8000) return;
-    lastLocationSyncAtRef.current = now;
-
-    updateRiderLocation(rider.id, activePosition.lat, activePosition.lng);
-  }, [isOnline, rider?.id, manualPosition, riderPosition]);
+  }, [isOnline, rider?.id]);
 
   const loadOrders = useCallback(async ({ silent = false } = {}) => {
     if (!silent) setLoading(true);
@@ -246,9 +257,21 @@ export function HomeScreen({ rider, onNavigate, onOrderAccepted }) {
   }
 
   async function toggleOnline() {
+    if (checkingGps) return;
     const next = !isOnline;
     if (next) {
+      // Must run synchronously inside the tap so the browser lets us unlock audio.
       enableSoundAlerts();
+      // Going online requires a fresh, usable fix from the device's own GPS.
+      setCheckingGps(true);
+      const fix = await getUsableGpsFix();
+      setCheckingGps(false);
+      if (!fix.ok) {
+        setGpsIssue(fix.message);
+        return;
+      }
+      setGpsIssue(null);
+      setRiderPosition(fix.position);
     }
     setIsOnline(next);
     try {
@@ -260,6 +283,7 @@ export function HomeScreen({ rider, onNavigate, onOrderAccepted }) {
   }
 
   async function handleAccept(orderId) {
+    if (!gpsReady) return;
     setAccepting(orderId);
     setError(null);
     // Drop from the list immediately so other riders (and double-taps) don't keep hammering Accept.
@@ -277,22 +301,10 @@ export function HomeScreen({ rider, onNavigate, onOrderAccepted }) {
 
   const fullName = rider?.profiles?.full_name ?? 'Rider';
   const photoUrl = rider?.photo_url;
-  const activePosition = manualPosition || riderPosition;
-  const showLocationPrompt = isOnline && !activePosition && locationSource !== 'gps-good';
+  const gpsReady = Boolean(riderPosition) && !gpsIssue;
 
   return (
     <div className="min-h-[100dvh] bg-[#fefaf4] flex flex-col [webkit-tap-highlight-color:transparent]">
-      {showLocationPicker && (
-        <LocationPicker
-          initialPosition={manualPosition || riderPosition}
-          onConfirm={(pos) => {
-            setManualPosition(pos);
-            setShowLocationPicker(false);
-          }}
-          onCancel={() => setShowLocationPicker(false)}
-        />
-      )}
-
       <div className="flex-1 overflow-y-auto pb-24">
         <div className="max-w-md mx-auto px-4 pt-6">
 
@@ -318,12 +330,13 @@ export function HomeScreen({ rider, onNavigate, onOrderAccepted }) {
 
             <button
               onClick={toggleOnline}
+              disabled={checkingGps}
               className={`relative flex items-center gap-2 pl-3 pr-1 py-1 rounded-full shrink-0 transition-colors ${
                 isOnline ? 'bg-[#7a1d1d]/10' : 'bg-gray-100'
               }`}
             >
               <span className={`text-[10px] font-bold uppercase ${isOnline ? 'text-[#7a1d1d]' : 'text-gray-400'}`}>
-                {isOnline ? 'Online' : 'Offline'}
+                {checkingGps ? 'Checking GPS…' : isOnline ? 'Online' : 'Offline'}
               </span>
               <span className={`relative w-9 h-5 rounded-full transition-colors ${isOnline ? 'bg-[#7a1d1d]' : 'bg-gray-300'}`}>
                 <motion.span
@@ -356,62 +369,19 @@ export function HomeScreen({ rider, onNavigate, onOrderAccepted }) {
             </AnimatePresence>
           </motion.div>
 
-          {showLocationPrompt && (
-            <motion.div
-              initial={{ opacity: 0, y: -10 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="w-full mb-4 bg-blue-50 border border-blue-200 rounded-2xl px-4 py-3"
+          {gpsIssue && (
+            <div
+              role="alert"
+              className="w-full mb-4 flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-2xl px-4 py-3"
             >
-              <p className="text-sm font-bold text-blue-900 mb-2">Set your location to see nearby orders</p>
-              <p className="text-xs text-blue-800/80 mb-3">
-                {locationSource === 'gps-denied'
-                  ? 'Location access denied. You can search for your area or set it on the map.'
-                  : locationSource === 'gps-unusable'
-                    ? 'Location signal too weak. Search for your area or set it manually.'
-                    : 'Waiting for location...'}
-              </p>
-              <button
-                onClick={() => setShowLocationPicker(true)}
-                className="w-full bg-[#7a1d1d] text-white py-2.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2"
-              >
-                <MapPin className="w-4 h-4" />
-                Set my location
-              </button>
-            </motion.div>
-          )}
-
-          {manualPosition && isOnline && (
-            <motion.div
-              initial={{ opacity: 0, y: -10 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="w-full mb-4 bg-[#faf6ee] border border-[#7a1d1d]/20 rounded-2xl px-4 py-3"
-            >
-              <div className="flex items-start justify-between">
-                <div className="flex-1">
-                  <p className="text-sm font-bold text-[#7a1d1d] mb-1">Using your set location</p>
-                  <p className="text-xs text-gray-600">
-                    {locationSource === 'gps-good'
-                      ? 'GPS now available — tap to switch back'
-                      : 'You set this location manually'}
-                  </p>
-                </div>
-                <button
-                  onClick={() => setShowLocationPicker(true)}
-                  className="shrink-0 text-xs font-bold text-[#7a1d1d] underline ml-2"
-                >
-                  Change
-                </button>
+              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-amber-700" />
+              <div>
+                <p className="text-sm font-bold text-amber-900">
+                  {isOnline ? 'GPS needed to take orders' : 'GPS needed to go online'}
+                </p>
+                <p className="text-xs text-amber-800/90 mt-0.5">{gpsIssue}</p>
               </div>
-              {locationSource === 'gps-good' && (
-                <button
-                  onClick={() => setManualPosition(null)}
-                  className="w-full mt-2 bg-white border border-gray-200 text-gray-700 py-2 rounded-lg font-bold text-xs"
-                >
-                  <Navigation className="w-3 h-3 inline mr-1" />
-                  Use current location instead
-                </button>
-              )}
-            </motion.div>
+            </div>
           )}
 
           {isOnline && !soundReady && (
@@ -464,7 +434,8 @@ export function HomeScreen({ rider, onNavigate, onOrderAccepted }) {
                   index={i}
                   onAccept={handleAccept}
                   accepting={accepting}
-                  riderPosition={activePosition}
+                  riderPosition={riderPosition}
+                  gpsReady={gpsReady}
                 />
               ))}
             </AnimatePresence>

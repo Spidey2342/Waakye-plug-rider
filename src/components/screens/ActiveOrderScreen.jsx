@@ -37,7 +37,7 @@ import { SUPPORT_WHATSAPP_NUMBER } from '../../lib/constants';
 import { restrictNotesInput } from '../../lib/formValidation';
 import { OrderItemsList } from '../OrderItemsList';
 import { parseOrderItems } from '../../lib/orderItems';
-import { LocationPicker } from '../LocationPicker';
+import { UNUSABLE_ACCURACY_M, gpsErrorKind, gpsProblemMessage } from '../../lib/riderGps';
 
 const STAGES = ['Heading to Vendor', 'At Vendor', 'Heading to Customer', 'Delivered'];
 const ARRIVAL_THRESHOLD_M = 100;
@@ -51,13 +51,13 @@ const STEP_THRESHOLD_M = 40;
 // warn the rider instead of silently trusting it.
 const MIN_USABLE_ACCURACY_M = 400;
 
-// A fix worse than THIS is not a "low-accuracy GPS reading" anymore — it's
+// A fix worse than UNUSABLE_ACCURACY_M (~3 km, from lib/riderGps) is not a
+// "low-accuracy GPS reading" anymore — it's
 // an IP/network-based guess (can be off by entire cities, e.g. reporting
 // Accra while the rider is actually in Ho). We never use a fix this bad for
 // anything, even as a first-load fallback: no marker, no route, no ETA.
 // Better to show "waiting for GPS" than to plot the rider hundreds of
 // kilometers from where they actually are.
-const UNUSABLE_ACCURACY_M = 3000;
 
 // Default map center when no vendor/delivery pin is known yet. NEVER Accra —
 // production riders operate in Ho / Volta. Prefer vendor coords on mount when
@@ -123,9 +123,10 @@ export function ActiveOrderScreen({ order: initialOrder, riderId, onDelivered, o
   const [vendorCoords, setVendorCoords] = useState(null);
   const [customerCoords, setCustomerCoords] = useState(null);
   const [riderPosition, setRiderPosition] = useState(null);
-  const [manualPosition, setManualPosition] = useState(null);
-  const [showLocationPicker, setShowLocationPicker] = useState(false);
   const positionAccuracyRef = useRef(null);
+  // True when the device stopped giving GPS (permission revoked, no signal).
+  // Position comes only from device GPS — there is no manual override.
+  const [gpsLost, setGpsLost] = useState(false);
   const [route, setRoute] = useState(null);
   const [routeRefetchTick, setRouteRefetchTick] = useState(0);
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
@@ -304,10 +305,7 @@ export function ActiveOrderScreen({ order: initialOrder, riderId, onDelivered, o
     if (accuracy != null && accuracy > UNUSABLE_ACCURACY_M) {
       // Do not plot the rider marker — a multi-km network guess can place
       // them in another city (e.g. Accra while they are in Ho).
-      setMapError(
-        `Waiting for GPS — current reading is ~${Math.round(accuracy / 1000)}km off (network/Wi-Fi guess, not real GPS). ` +
-        `Your marker stays hidden until Precise/GPS location locks in. Enable Precise Location, go outdoors, and use a phone (not a laptop).`
-      );
+      setMapError(gpsProblemMessage('inaccurate', accuracy));
       return;
     }
 
@@ -322,6 +320,7 @@ export function ActiveOrderScreen({ order: initialOrder, riderId, onDelivered, o
 
     positionAccuracyRef.current = accuracy;
     setRiderPosition(next);
+    setGpsLost(false);
     if (isLowAccuracy) {
       setMapError(`Location is approximate (±${Math.round(accuracy)}m). Move to open sky or enable precise/GPS location for accurate directions.`);
     } else if (accuracy != null) {
@@ -345,38 +344,42 @@ export function ActiveOrderScreen({ order: initialOrder, riderId, onDelivered, o
 
     const watchId = navigator.geolocation.watchPosition(
       handlePosition,
-      () => setMapError('Location access is off — turn it on to see your live position and get directions.'),
+      (err) => {
+        setGpsLost(true);
+        setMapError(gpsProblemMessage(gpsErrorKind(err)));
+      },
       { enableHighAccuracy: true, maximumAge: 5000 }
     );
     return () => navigator.geolocation.clearWatch(watchId);
   }, [handlePosition]);
 
-  // Push the active position (manual override or live GPS) to Supabase,
-  // throttled. This makes the location visible to customer tracking, vendors,
-  // and admin dashboards. Manual position takes precedence when set.
+  // Push the rider's live position to Supabase, throttled. This is what
+  // actually makes the location "real" outside this browser tab — without
+  // it, riderPosition only ever drove this screen's own map/route and was
+  // never visible to a customer tracking their order, a vendor, or admin.
   useEffect(() => {
-    if (!riderId) return;
-
-    const activePosition = manualPosition || riderPosition;
-    if (!activePosition) return;
+    if (!riderId || !riderPosition) return;
 
     const now = Date.now();
     if (now - lastLocationSyncAtRef.current < LOCATION_SYNC_INTERVAL_MS) return;
     lastLocationSyncAtRef.current = now;
 
-    updateRiderLocation(riderId, activePosition.lat, activePosition.lng);
-  }, [riderId, manualPosition, riderPosition]);
+    updateRiderLocation(riderId, riderPosition.lat, riderPosition.lng);
+  }, [riderId, riderPosition]);
 
-  const activePosition = manualPosition || riderPosition;
-  const hasPosition = Boolean(activePosition);
+  const hasPosition = Boolean(riderPosition);
+  // Orders can only move forward (picked up / delivered) with a usable fix
+  // from the device's own GPS.
+  const gpsUsable = hasPosition && !gpsLost;
+  const noGeolocation = typeof navigator === 'undefined' || !('geolocation' in navigator);
   useEffect(() => {
-    if (!activePosition || !target) return;
+    if (!riderPosition || !target) return;
 
     let cancelled = false;
     async function fetchRoute() {
       setLoadingRoute(true);
       try {
-        const r = await getRoute(activePosition, target);
+        const r = await getRoute(riderPosition, target);
         if (!cancelled && r) {
           setRoute(r);
           spokenStepIndexRef.current = -1;
@@ -392,15 +395,15 @@ export function ActiveOrderScreen({ order: initialOrder, riderId, onDelivered, o
     fetchRoute();
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [target?.lat, target?.lng, order.status, hasPosition, routeRefetchTick, manualPosition]);
+  }, [target?.lat, target?.lng, order.status, hasPosition, routeRefetchTick]);
 
   // Watches for the rider drifting away from the plotted route (missed
   // turn, different road, etc.) and triggers a fresh route calculation,
   // throttled so we don't spam OSRM on every GPS tick.
   useEffect(() => {
-    if (!activePosition || !route?.coordinates?.length) return;
+    if (!riderPosition || !route?.coordinates?.length) return;
 
-    const deviation = distanceToPolylineMeters(activePosition, route.coordinates);
+    const deviation = distanceToPolylineMeters(riderPosition, route.coordinates);
     if (deviation <= ROUTE_DEVIATION_THRESHOLD_M) return;
 
     const now = Date.now();
@@ -408,7 +411,7 @@ export function ActiveOrderScreen({ order: initialOrder, riderId, onDelivered, o
 
     lastRouteFetchAtRef.current = now;
     setRouteRefetchTick((t) => t + 1);
-  }, [activePosition, route]);
+  }, [riderPosition, route]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -422,9 +425,9 @@ export function ActiveOrderScreen({ order: initialOrder, riderId, onDelivered, o
       if (customerMarkerRef.current) customerMarkerRef.current.setLatLng(customerCoords);
       else customerMarkerRef.current = L.marker(customerCoords, { icon: makeDivIcon('#1f2937') }).addTo(map);
     }
-    if (activePosition) {
-      if (riderMarkerRef.current) riderMarkerRef.current.setLatLng(activePosition);
-      else riderMarkerRef.current = L.marker(activePosition, { icon: makeDivIcon('#2563eb', true) }).addTo(map);
+    if (riderPosition) {
+      if (riderMarkerRef.current) riderMarkerRef.current.setLatLng(riderPosition);
+      else riderMarkerRef.current = L.marker(riderPosition, { icon: makeDivIcon('#2563eb', true) }).addTo(map);
     }
     if (route?.coordinates) {
       if (routeLayerRef.current) map.removeLayer(routeLayerRef.current);
@@ -436,25 +439,25 @@ export function ActiveOrderScreen({ order: initialOrder, riderId, onDelivered, o
       const points = [];
       if (vendorCoords) points.push([vendorCoords.lat, vendorCoords.lng]);
       if (customerCoords) points.push([customerCoords.lat, customerCoords.lng]);
-      if (activePosition) points.push([activePosition.lat, activePosition.lng]);
+      if (riderPosition) points.push([riderPosition.lat, riderPosition.lng]);
       if (points.length >= 2) {
         map.fitBounds(L.latLngBounds(points), { padding: [40, 40], maxZoom: 15 });
       } else if (points.length === 1) {
         map.setView(points[0], 14);
       }
     }
-  }, [vendorCoords, customerCoords, activePosition, route]);
+  }, [vendorCoords, customerCoords, riderPosition, route]);
 
   useEffect(() => {
-    if (!activePosition) return;
+    if (!riderPosition) return;
 
     if (order.status === 'rider_assigned' && vendorCoords) {
-      setIsAtVendor(distanceMeters(activePosition, vendorCoords) <= ARRIVAL_THRESHOLD_M);
+      setIsAtVendor(distanceMeters(riderPosition, vendorCoords) <= ARRIVAL_THRESHOLD_M);
     }
 
     if (route?.steps?.length) {
       const nextStep = route.steps[currentStepIndex];
-      if (nextStep && distanceMeters(activePosition, nextStep.location) <= STEP_THRESHOLD_M) {
+      if (nextStep && distanceMeters(riderPosition, nextStep.location) <= STEP_THRESHOLD_M) {
         if (currentStepIndex < route.steps.length - 1) {
           setCurrentStepIndex((i) => i + 1);
         }
@@ -464,7 +467,7 @@ export function ActiveOrderScreen({ order: initialOrder, riderId, onDelivered, o
         spokenStepIndexRef.current = currentStepIndex;
       }
     }
-  }, [activePosition, route, currentStepIndex, order.status, vendorCoords]);
+  }, [riderPosition, route, currentStepIndex, order.status, vendorCoords]);
 
   const stageIndex = order.status === 'delivered'
     ? 3
@@ -575,21 +578,8 @@ export function ActiveOrderScreen({ order: initialOrder, riderId, onDelivered, o
     }
   }
 
-  const gpsGoodAccuracy = positionAccuracyRef.current != null && positionAccuracyRef.current <= 100;
-
   return (
     <div className="min-h-[100dvh] bg-[#fefaf4] flex flex-col [webkit-tap-highlight-color:transparent]">
-      {showLocationPicker && (
-        <LocationPicker
-          initialPosition={manualPosition || riderPosition}
-          onConfirm={(pos) => {
-            setManualPosition(pos);
-            setShowLocationPicker(false);
-            setMapError(null);
-          }}
-          onCancel={() => setShowLocationPicker(false)}
-        />
-      )}
 
       <div className="px-4 pt-4 pb-3 bg-[#fefaf4] z-10">
         <div className="flex items-center justify-between mb-4">
@@ -665,49 +655,10 @@ export function ActiveOrderScreen({ order: initialOrder, riderId, onDelivered, o
         )}
       </div>
 
-      {mapError && (
-        <div className="mx-4 mt-2 bg-amber-50 text-amber-700 text-xs font-medium rounded-lg overflow-hidden">
-          <div className="flex items-start gap-2 px-3 py-2">
-            <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-            <span className="flex-1">{mapError}</span>
-          </div>
-          {mapError.includes('Waiting for GPS') || mapError.includes('Location signal is weak') ? (
-            <button
-              onClick={() => setShowLocationPicker(true)}
-              className="w-full bg-[#7a1d1d] text-white py-2 text-xs font-bold"
-            >
-              <MapPin className="w-3 h-3 inline mr-1" />
-              Set my location instead
-            </button>
-          ) : null}
-        </div>
-      )}
-
-      {manualPosition && (
-        <div className="mx-4 mt-2 bg-[#faf6ee] border border-[#7a1d1d]/20 rounded-lg px-3 py-2">
-          <div className="flex items-start justify-between text-xs">
-            <div className="flex-1">
-              <p className="font-bold text-[#7a1d1d]">Using your set location</p>
-              <p className="text-gray-600 mt-0.5">
-                {gpsGoodAccuracy ? 'GPS available — tap Change to switch back' : 'You set this manually'}
-              </p>
-            </div>
-            <button
-              onClick={() => setShowLocationPicker(true)}
-              className="shrink-0 text-xs font-bold text-[#7a1d1d] underline ml-2"
-            >
-              Change
-            </button>
-          </div>
-          {gpsGoodAccuracy && (
-            <button
-              onClick={() => setManualPosition(null)}
-              className="w-full mt-2 bg-white border border-gray-200 text-gray-700 py-1.5 rounded-lg font-bold text-xs"
-            >
-              <Navigation className="w-3 h-3 inline mr-1" />
-              Use current location instead
-            </button>
-          )}
+      {(mapError || noGeolocation) && (
+        <div className="mx-4 mt-2 flex items-start gap-2 bg-amber-50 text-amber-700 text-xs font-medium px-3 py-2 rounded-lg">
+          <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+          <span>{mapError || gpsProblemMessage('unsupported')}</span>
         </div>
       )}
 
@@ -754,12 +705,18 @@ export function ActiveOrderScreen({ order: initialOrder, riderId, onDelivered, o
         </div>
 
 
+        {!gpsUsable && (order.status === 'rider_assigned' || order.status === 'picked_up') && (
+          <p className="text-xs font-medium text-amber-700 bg-amber-50 rounded-xl px-3 py-2 mb-3">
+            Waiting for a usable GPS fix from your phone before you can continue this order.
+          </p>
+        )}
+
         {order.status === 'rider_assigned' && (
           <>
             <motion.button
               whileTap={{ scale: 0.98 }}
               onClick={handleMarkPickedUp}
-              disabled={actionLoading}
+              disabled={actionLoading || !gpsUsable}
               className="w-full bg-[#7a1d1d] text-white py-4 rounded-2xl font-bold text-base flex items-center justify-center gap-2 disabled:opacity-60 mb-3"
             >
               {actionLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
@@ -784,7 +741,7 @@ export function ActiveOrderScreen({ order: initialOrder, riderId, onDelivered, o
               setDeliveryCodeInput('');
               setShowDeliverConfirm(true);
             }}
-            disabled={actionLoading}
+            disabled={actionLoading || !gpsUsable}
             className="w-full bg-[#7a1d1d] text-white py-4 rounded-2xl font-bold text-base flex items-center justify-center gap-2 disabled:opacity-60 mb-3"
           >
             <CheckCircle2 className="w-4 h-4" />

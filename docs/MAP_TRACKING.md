@@ -32,6 +32,20 @@ Plain-language architecture for the ActiveOrder map system. Covers how rider/ven
 **What it is NOT:**
 - Not from onboarding (onboarding never sets map coords)
 - Not read back from DB for routing (always use live GPS as route start point)
+- Not settable by the rider. There is no manual location override (no search,
+  no draggable pin). Live location sharing to the customer depends on real
+  GPS, a manual pin goes stale as the rider moves, and it would let a rider
+  fake their position. A phone that keeps reporting the wrong location is a
+  faulty device the rider needs to replace.
+
+**No usable GPS fix (denied, unavailable, or >~3 km accuracy):**
+- Going online first takes one fresh high-accuracy read (`maximumAge: 0`);
+  if it isn't usable the rider stays offline and sees a plain-language message
+  (turn on Location, use high-accuracy/Precise mode, allow permission; if the
+  phone keeps showing the wrong location, use a device with working GPS).
+- Accept Order, Mark Picked Up and Confirm delivery code are disabled until a
+  usable fix is available. Cancel/return actions stay available.
+- Shared helper: `src/lib/riderGps.js`.
 
 **DB writes:**
 - Every ~8 seconds to `riders.current_lat`, `riders.current_lng`, `riders.location_updated_at`
