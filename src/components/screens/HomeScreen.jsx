@@ -31,6 +31,7 @@ import {
   gpsErrorKind,
   gpsProblemMessage,
 } from '../../lib/riderGps';
+import { useToast } from '../../lib/toast';
 
 // A GPS fix worse than UNUSABLE_ACCURACY_M is a network/IP-based guess, not
 // a real GPS reading — same threshold ActiveOrderScreen uses. It is never
@@ -148,6 +149,7 @@ export function HomeScreen({ rider, onNavigate, onOrderAccepted }) {
   const lastLocationSyncAtRef = useRef(0);
   const knownOrderIdsRef = useRef(null);
   const isOnlineRef = useRef(isOnline);
+  const toast = useToast();
   useEffect(() => {
     isOnlineRef.current = isOnline;
   }, [isOnline]);
@@ -292,6 +294,7 @@ export function HomeScreen({ rider, onNavigate, onOrderAccepted }) {
       const accepted = await acceptOrder(orderId, rider.id);
       onOrderAccepted(accepted);
     } catch (err) {
+      toast.error(err.message || 'Could not accept this order.');
       setError(err.message);
       loadOrders({ silent: true });
     } finally {

@@ -38,6 +38,7 @@ import { restrictNotesInput } from '../../lib/formValidation';
 import { OrderItemsList } from '../OrderItemsList';
 import { parseOrderItems } from '../../lib/orderItems';
 import { UNUSABLE_ACCURACY_M, gpsErrorKind, gpsProblemMessage } from '../../lib/riderGps';
+import { useToast } from '../../lib/toast';
 
 const STAGES = ['Heading to Vendor', 'At Vendor', 'Heading to Customer', 'Delivered'];
 const ARRIVAL_THRESHOLD_M = 100;
@@ -148,6 +149,8 @@ export function ActiveOrderScreen({ order: initialOrder, riderId, onDelivered, o
   const [showReturnToPool, setShowReturnToPool] = useState(false);
   const [returnReason, setReturnReason] = useState('');
   const [returnSubmitting, setReturnSubmitting] = useState(false);
+
+  const toast = useToast();
 
   const target = order.status === 'picked_up' ? customerCoords : vendorCoords;
   const callCustomerContact = releasedCustomerContact ?? customerContact;
@@ -491,16 +494,17 @@ export function ActiveOrderScreen({ order: initialOrder, riderId, onDelivered, o
     try {
       const updated = await markPickedUp(order.id);
       setOrder(updated);
+      toast.success('Marked as picked up — heading to the customer.');
     } catch (err) {
-      setMapError(err.message);
+      toast.error(err.message || 'Could not mark order as picked up.');
     } finally {
       setActionLoading(false);
     }
-  }, [order.id]);
+  }, [order.id, toast]);
 
   const handleConfirmDelivered = useCallback(async () => {
     if (deliveryCodeInput.length !== 4) {
-      setMapError('Enter all 4 numbers the customer shows you.');
+      toast.error('Enter all 4 numbers the customer shows you.');
       return;
     }
 
@@ -510,13 +514,14 @@ export function ActiveOrderScreen({ order: initialOrder, riderId, onDelivered, o
       const updated = result.order ?? result;
       setShowDeliverConfirm(false);
       setDeliveryCodeInput('');
+      toast.success('Delivery verified — code accepted. Order complete!');
       onDelivered(updated);
     } catch (err) {
-      setMapError(err.message);
+      toast.error(err.message || 'Delivery code not accepted — check the code and try again.');
     } finally {
       setActionLoading(false);
     }
-  }, [order.id, deliveryCodeInput, onDelivered]);
+  }, [order.id, deliveryCodeInput, onDelivered, toast]);
 
   const handleVendorClosedCancel = useCallback(async () => {
     setActionLoading(true);
@@ -531,12 +536,13 @@ export function ActiveOrderScreen({ order: initialOrder, riderId, onDelivered, o
       setReleasedCustomerContact(contact);
       if (contact?.phone) setCustomerContact(contact);
       setShowCallCustomerPrompt(true);
+      toast.success('Order cancelled — the customer has been notified.');
     } catch (err) {
-      setMapError(err.message);
+      toast.error(err.message || 'Could not cancel the order.');
     } finally {
       setActionLoading(false);
     }
-  }, [order, customerContact]);
+  }, [order, customerContact, toast]);
 
   function finishReleaseAndGoHome() {
     setShowCallCustomerPrompt(false);
@@ -545,7 +551,7 @@ export function ActiveOrderScreen({ order: initialOrder, riderId, onDelivered, o
 
   function callVendor() {
     if (order.vendors?.phone) window.location.href = `tel:${order.vendors.phone}`;
-    else setMapError('No phone number on file for this vendor.');
+    else toast.error('No phone number on file for this vendor.');
   }
 
   function openChatSupport() {
@@ -559,8 +565,9 @@ export function ActiveOrderScreen({ order: initialOrder, riderId, onDelivered, o
     try {
       await reportIssue(order.id, order.rider_id, issueText.trim());
       setIssueSubmitted(true);
+      toast.success('Issue reported — we’ll follow up if needed.');
     } catch (err) {
-      setMapError(err.message);
+      toast.error(err.message || 'Could not submit the report.');
     } finally {
       setIssueSubmitting(false);
     }
@@ -571,9 +578,10 @@ export function ActiveOrderScreen({ order: initialOrder, riderId, onDelivered, o
     try {
       await releaseOrder(order.id, returnReason.trim() || undefined);
       setShowReturnToPool(false);
+      toast.success('Order returned to the pool.');
       onBack();
     } catch (err) {
-      setMapError(err.message);
+      toast.error(err.message || 'Could not return the order.');
       setReturnSubmitting(false);
     }
   }
