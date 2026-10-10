@@ -28,8 +28,10 @@ Required variables:
 ```bash
 VITE_SUPABASE_URL=https://verncapitxzsgcughvil.supabase.co
 VITE_SUPABASE_ANON_KEY=<anon-key>
-VITE_PAYSTACK_PUBLIC_KEY=<paystack-public-key>
+VITE_PAYSTACK_PUBLIC_KEY=pk_live_<your-live-public-key>
 ```
+
+For **test → live** migration (Vercel + Supabase secrets + webhook), see **[PAYSTACK_LIVE.md](./PAYSTACK_LIVE.md)**.
 
 Optional variables:
 
@@ -46,7 +48,7 @@ Missing Supabase vars cause `supabase.js` to throw at import time. Missing Payst
 | Secret | Used by |
 |---|---|
 | `SUPABASE_URL` / `SUPABASE_ANON_KEY` / `SUPABASE_SERVICE_ROLE_KEY` | Injected by Supabase for functions |
-| `PAYSTACK_SECRET_KEY` | `create-settlement`, `verify-settlement`, `paystack-webhook` |
+| `PAYSTACK_SECRET_KEY` | `create-settlement`, `verify-settlement`, `paystack-webhook` — use **`sk_live_…`** in production |
 | `RESEND_API_KEY` | `reset-pin` admin notification email |
 | `ADMIN_NOTIFICATION_EMAIL` | `reset-pin` recipient |
 

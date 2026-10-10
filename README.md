@@ -36,6 +36,7 @@ npm run dev
 
 | Doc | Contents |
 |---|---|
+| [docs/PAYSTACK_LIVE.md](docs/PAYSTACK_LIVE.md) | Switch rider settlements from Paystack **test** to **live** keys |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | System design, auth model, order lifecycle, money flow |
 | [docs/MAP_TRACKING.md](docs/MAP_TRACKING.md) | Rider map tracking: Leaflet/OSM/OSRM stack, GPS accuracy, pin sources, routing |
 | [docs/FEATURES.md](docs/FEATURES.md) | Exhaustive inventory of every screen, `src/lib` module, and edge function |
