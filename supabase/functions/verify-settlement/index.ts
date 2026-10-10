@@ -120,14 +120,47 @@ Deno.serve(async (req) => {
       return jsonResponse(500, { error: settleUpdateError.message });
     }
 
-    const { error: resetError } = await supabaseAdmin
-      .from('riders')
-      .update({ commission_owed: 0, last_settled_at: new Date().toISOString() })
-      .eq('id', riderId);
+    // Reduce (never zero-out) commission_owed by exactly what was paid.
+    // Setting it to 0 used to silently wipe commission accrued by deliveries
+    // made BETWEEN the intent being created and this payment landing (see
+    // docs/issues-log.md, 2026-10-10). Compare-and-set loop keeps this safe
+    // under the rare concurrent-delivery race.
+    let resetError: { message: string } | null = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const { data: currentRider } = await supabaseAdmin
+        .from('riders')
+        .select('commission_owed')
+        .eq('id', riderId)
+        .maybeSingle();
+
+      const currentOwed = Number(currentRider?.commission_owed || 0);
+      const nextOwed = Math.max(0, currentOwed - owed);
+
+      const { error } = await supabaseAdmin
+        .from('riders')
+        .update({ commission_owed: nextOwed, last_settled_at: new Date().toISOString() })
+        .eq('id', riderId)
+        .eq('commission_owed', currentOwed);
+
+      if (!error) {
+        resetError = null;
+        break;
+      }
+      resetError = error;
+    }
 
     if (resetError) {
-      return jsonResponse(500, { error: `Payment verified but could not reset commission: ${resetError.message}` });
+      return jsonResponse(500, { error: `Payment verified but could not settle commission: ${resetError.message}` });
     }
+
+    // Any other still-pending intents for this rider are now superseded —
+    // marking them abandoned keeps the ledger clean and guarantees future
+    // create-settlement calls reuse the PAID row rather than orphaned rows.
+    await supabaseAdmin
+      .from('rider_settlements')
+      .update({ status: 'abandoned' })
+      .eq('rider_id', riderId)
+      .eq('status', 'pending');
 
     return jsonResponse(200, { success: true });
   } catch (err) {

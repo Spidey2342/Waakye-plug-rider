@@ -53,10 +53,30 @@ Deno.serve(async (req) => {
           .update({ status: 'paid', paid_at: new Date().toISOString() })
           .eq('id', settlement.id);
 
+        // Reduce (never zero-out) commission by what was actually paid, so
+        // deliveries completed AFTER the intent keep their own commission.
+        // Same accounting as verify-settlement; see docs/issues-log.md.
+        for (let attempt = 0; attempt < 3; attempt++) {
+          const { data: cur } = await supabaseAdmin
+            .from('riders')
+            .select('commission_owed')
+            .eq('id', settlement.rider_id)
+            .maybeSingle();
+          const currentOwed = Number(cur?.commission_owed || 0);
+          const nextOwed = Math.max(0, currentOwed - owed);
+          const { error } = await supabaseAdmin
+            .from('riders')
+            .update({ commission_owed: nextOwed, last_settled_at: new Date().toISOString() })
+            .eq('id', settlement.rider_id)
+            .eq('commission_owed', currentOwed);
+          if (!error) break;
+        }
+
         await supabaseAdmin
-          .from('riders')
-          .update({ commission_owed: 0, last_settled_at: new Date().toISOString() })
-          .eq('id', settlement.rider_id);
+          .from('rider_settlements')
+          .update({ status: 'abandoned' })
+          .eq('rider_id', settlement.rider_id)
+          .eq('status', 'pending');
       }
     }
   }

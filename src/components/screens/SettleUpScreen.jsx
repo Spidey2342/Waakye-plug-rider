@@ -5,12 +5,15 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Lock, Bike, Banknote, HandCoins, ShieldCheck, ArrowRight, Loader2 } from 'lucide-react';
 import { fetchTodaySettlementSummary, createSettlementIntent, verifySettlement } from '../../lib/settlementApi';
 import { payWithPaystack } from '../../lib/paystack';
+import { useToast } from '../../lib/toast';
 
 export function SettleUpScreen({ rider, onSettled }) {
   const [loading, setLoading] = useState(true);
   const [summary, setSummary] = useState(null);
   const [paying, setPaying] = useState(false);
   const [error, setError] = useState(null);
+
+  const toast = useToast();
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -19,10 +22,11 @@ export function SettleUpScreen({ rider, onSettled }) {
       setSummary(data);
     } catch (err) {
       setError(err.message);
+      toast.error(err.message || 'Could not load your settlement.');
     } finally {
       setLoading(false);
     }
-  }, [rider.id]);
+  }, [rider.id, toast]);
 
   useEffect(() => {
     load();
@@ -45,9 +49,11 @@ export function SettleUpScreen({ rider, onSettled }) {
         onSuccess: async (paidReference) => {
           try {
             await verifySettlement(paidReference);
+            toast.success('Settlement paid — you are unlocked.');
             onSettled();
           } catch (err) {
             setError(err.message);
+            toast.error(err.message || 'Payment received but could not be confirmed. Contact support with the reference shown on Paystack.');
           } finally {
             setPaying(false);
           }
@@ -56,6 +62,7 @@ export function SettleUpScreen({ rider, onSettled }) {
       });
     } catch (err) {
       setError(err.message);
+      toast.error(err.message || 'Could not start the settlement payment.');
       setPaying(false);
     }
   }

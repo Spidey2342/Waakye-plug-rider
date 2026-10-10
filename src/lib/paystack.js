@@ -15,7 +15,11 @@ export async function payWithPaystack({ email, amountGHS, reference, onSuccess, 
   await loadPaystackScript();
 
   const publicKey = import.meta.env.VITE_PAYSTACK_PUBLIC_KEY;
-  if (!publicKey) throw new Error('Missing VITE_PAYSTACK_PUBLIC_KEY in .env');
+  if (!publicKey) {
+    throw new Error(
+      'Settlement payments are not configured yet (missing the Paystack public key). Please contact support and tell them the wallet is not set up on your build.'
+    );
+  }
 
   const handler = window.PaystackPop.setup({
     key: publicKey,

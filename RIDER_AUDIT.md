@@ -12,7 +12,7 @@
 | Item | Result |
 |---|---|
 | Production build | ✅ **VERIFIED 2026-09-15** — first-ever production build: `node node_modules/vite/bin/vite.js build` exit 0, 36.7s → `dist/assets/index-CLGCUghV.js` (736.7 kB, includes Leaflet+OSRM+motion) + `index-DH00HwaA.css` (40.6 kB). Chunk-size warning only (no code-split configured) — fine for MVP. |
-| Secrets hygiene | ✅ No `.env` committed; but no `.env` on disk either → needs `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `VITE_PAYSTACK_PUBLIC_KEY` |
+| Secrets hygiene | ✅ No `.env` committed; `.env` on disk (gitignored) now includes `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `VITE_PAYSTACK_PUBLIC_KEY` — see `docs/issues-log.md` (2026-10-10 wallet fix) for why the Paystack key matters |
 | Overall verdict | **Most sophisticated of the three apps — real money flow, real maps. But the auth design has serious security holes that must be fixed before launch.** |
 
 ## What's genuinely impressive 👏

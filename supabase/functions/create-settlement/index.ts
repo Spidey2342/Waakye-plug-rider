@@ -102,6 +102,31 @@ Deno.serve(async (req) => {
       return jsonResponse(400, { error: 'Nothing owed — no settlement needed' });
     }
 
+    // Idempotency: reuse an existing pending intent instead of minting a new
+    // Paystack reference. Every call used to insert a fresh row — a rider who
+    // double-tapped (or the Settle Up screen re-mounting) ended up with two
+    // references for the same debt. If both were paid, one payment would
+    // verify while the other hit "already processed" and the rider was
+    // charged twice with no credit (see docs/issues-log.md, 2026-10-10).
+    // Reusing the same reference keeps the UI, paystack-webhook and
+    // verify-settlement pointing at ONE settlement row.
+    const { data: existing, error: existingError } = await supabaseAdmin
+      .from('rider_settlements')
+      .select('id, paystack_reference, total_commission_owed')
+      .eq('rider_id', effectiveRiderId)
+      .eq('status', 'pending')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (!existingError && existing?.paystack_reference) {
+      return jsonResponse(200, {
+        reference: existing.paystack_reference,
+        amount: Number(existing.total_commission_owed) || owed,
+        reused: true,
+      });
+    }
+
     const reference = `settle_${effectiveRiderId.slice(0, 8)}_${Date.now()}`;
 
     const { error: insertError } = await supabaseAdmin.from('rider_settlements').insert({
@@ -115,7 +140,7 @@ Deno.serve(async (req) => {
       return jsonResponse(500, { error: insertError.message });
     }
 
-    return jsonResponse(200, { reference, amount: owed });
+    return jsonResponse(200, { reference, amount: owed, reused: false });
   } catch (err) {
     return jsonResponse(500, {
       error: err instanceof Error ? err.message : 'Unknown error',
