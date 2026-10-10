@@ -154,11 +154,12 @@ Deno.serve(async (req) => {
     }
 
     // Any other still-pending intents for this rider are now superseded —
-    // marking them abandoned keeps the ledger clean and guarantees future
+    // marking them 'failed' keeps the ledger clean and guarantees future
     // create-settlement calls reuse the PAID row rather than orphaned rows.
+    // (status CHECK allows only pending/paid/failed, hence 'failed'.)
     await supabaseAdmin
       .from('rider_settlements')
-      .update({ status: 'abandoned' })
+      .update({ status: 'failed' })
       .eq('rider_id', riderId)
       .eq('status', 'pending');
 

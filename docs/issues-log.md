@@ -49,7 +49,8 @@ Paystack**, and payment cannot complete. The rider stays locked out.
   of inserting a second one.
 - `verify-settlement` + `paystack-webhook`: after a successful payment,
   `commission_owed` is **reduced by the settled amount** (never `= 0`), and any
-  other `pending` settlements for the rider are marked `abandoned`.
+  other `pending` settlements for the rider are marked `failed` (the status
+  CHECK allows only `pending`/`paid`/`failed`).
 - `paystack.js`: actionable error message if the key is ever missing.
 - `SettleUpScreen`: success/error feedback now uses the app-wide toast system.
 - Local `.env` given the real live public key so dev builds exercise the full
@@ -75,4 +76,4 @@ after the run.
   cannot pay; keep an eye on that edge (product decision, not a code bug).
 - Clean up any legacy `pending` rows in `rider_settlements` for riders who
   already paid a different reference:
-  `update rider_settlements set status = 'abandoned' where status = 'pending' and paid_at is null and id <> (select id from rider_settlements s2 where s2.rider_id = rider_settlements.rider_id and s2.status = 'pending' order by s2.created_at desc limit 1);`
+  `update rider_settlements set status = 'failed' where status = 'pending' and paid_at is null and id <> (select id from rider_settlements s2 where s2.rider_id = rider_settlements.rider_id and s2.status = 'pending' order by s2.created_at desc limit 1);`

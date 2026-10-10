@@ -74,7 +74,7 @@ Deno.serve(async (req) => {
 
         await supabaseAdmin
           .from('rider_settlements')
-          .update({ status: 'abandoned' })
+          .update({ status: 'failed' })
           .eq('rider_id', settlement.rider_id)
           .eq('status', 'pending');
       }
